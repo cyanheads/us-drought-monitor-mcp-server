@@ -1,6 +1,6 @@
 # us-drought-monitor-mcp-server - Directory Structure
 
-Generated on: 2026-10-20 02:14:13
+Generated on: 2026-10-20 02:36:19
 
 ```text
 us-drought-monitor-mcp-server/
@@ -24,6 +24,7 @@ us-drought-monitor-mcp-server/
 │   ├── extensions.json
 │   └── settings.json
 ├── changelog/
+│   ├── 0.1.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
@@ -196,6 +197,7 @@ us-drought-monitor-mcp-server/
 ├── biome.json
 ├── bun.lock
 ├── bunfig.toml
+├── CHANGELOG.md
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile
