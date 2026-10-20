@@ -14,7 +14,7 @@
   "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "us-drought-monitor-mcp-server",
-    "shortDescription": "Query U.S. Drought Monitor severity and weekly drought statistics.",
+    "shortDescription": "Query U.S. Drought Monitor severity, DSCI, population, and drought duration via MCP. STDIO or Streamable HTTP.",
     "longDescription": "Explore weekly U.S. Drought Monitor statistics across national areas, states, counties, HUC watersheds, tribal areas and climate divisions. Retrieve current or dated severity, population and experimental DSCI, follow historical series, rank areas by severity or change, and count county drought weeks without treating duration as program eligibility. Large results stage complete tables for read-only SQL in npm and Docker installations; the portable Claude Desktop bundle supports inline results only. Missing observations and source provenance remain explicit. No API key is required.",
     "developerName": "cyanheads",
     "category": "data",

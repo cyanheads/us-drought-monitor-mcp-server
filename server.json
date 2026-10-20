@@ -52,7 +52,6 @@
           "name": "MCP_TRANSPORT_TYPE",
           "description": "Selects the HTTP transport.",
           "format": "string",
-          "isRequired": false,
           "value": "http"
         },
         {

@@ -61,7 +61,13 @@ async handler(input, ctx) {
     droughtService.timeseries(input, ctx.signal, stage),
   );
   if (!result.rowCount)
-    ctx.enrich.notice('No USDM observations are available for these areas and weeks.');
+    ctx.enrich.notice(
+      'No USDM observations are available for the resolved areas and published weeks; call drought_get_timeseries with a different range or drought_list_reference(topic=coverage).',
+    );
+  else if (result.missingObservations.length)
+    ctx.enrich.notice(
+      'Missing observations are disclosed by component and date; null DSCI does not mean zero drought.',
+    );
   return result;
 },
 format: (result) => [{ type: 'text', text: renderWorkflow(result) }],
@@ -69,20 +75,33 @@ format: (result) => [{ type: 'text', text: renderWorkflow(result) }],
 
 See the definition for its complete schemas, inline error contract and recovery hints. Preserve every output field on both `content[]` and `structuredContent`.
 
+Time-series metadata stays complete inline when it fits. Overflow automatically retains complete metadata and rows (including zero-row tables), returning truthful array prefixes and `metadata_pages`. Read every retained collection through `drought_dataframe_describe` with `table_name`, `metadata_field`, `metadata_offset` and `metadata_limit`; never refetch upstream to serve a page. Retained metadata counts toward the same tenant byte quota and expires with its table.
+
+Admission bounds acquisition before fetching, including inline results. Report active contention as `staging_busy`, with wait/retry guidance. At the four-canvas process cap, reuse only the caller tenant's most recently used service-owned canvas with fewer than eight live tables. Successful staging, querying and describing update that order. Explicit token reuse relinquishes service ownership; never evict live tables. Retained-capacity errors recommend token reuse or expiry and expose the earliest relevant expiry when known.
+
+Duration acquisition sends one request per deduplicated state and merges all rows before county filtering or paging. Consecutive counts are bounded by the effective map window; `startMayExtendEarlier` and `endMayContinue` disclose uncertainty at its Tuesday start and Monday end. Keep non-consecutive rows free of these flags. Abort and settle all sibling requests on failure.
+
+Only the eight legacy Connecticut FIPS `09001`, `09003`, `09005`, `09007`, `09009`, `09011`, `09013`, `09015` are excluded from comparisons. Preserve their discoverability and empty-success observation contracts, with planning-region guidance through `drought_list_reference(topic: counties, state: CT)`. Never generalize from `currentUsdm: false` or map county boundaries to planning regions.
+
+### Reference bundle
+
+`src/data/reference.json` is the generated offline geography bundle (states, counties, tribal areas, climate divisions, HUCs) with source URLs, vintages and SHA-256 hashes. Refresh it only with `bun run scripts/update-reference-data.ts`, which downloads the official Census and USDM tables, validates them and writes the file atomically; never hand-edit it or fetch references at startup. `src/services/drought/reference-bundle.ts` encodes and decodes the stored form.
+
 ### Configuration and startup
 
 `src/config/canvas-config.ts` parses `DROUGHT_DATAFRAME_DROP_ENABLED` with `z.stringbool().default(false)`. The entrypoint loads `.env`, then seeds only unset canvas defaults: DuckDB, 128 MB per engine, four canvases per tenant. Explicit `CANVAS_PROVIDER_TYPE=none` wins. An enabled engine requires `CANVAS_DEFAULT_ROW_LIMIT >= 501`.
 
 `createApp()` uses `name` and `title` equal to `us-drought-monitor-mcp-server`, `sessionMode: 'stateless'`, and `setup(core) { setCanvas(core.canvas); }`. Description comes from `package.json`; instructions explain geography resolution, map weeks, missing data and analytical continuation.
 
+Node acquisition uses the server-owned `usdmTransport` dispatcher with `allowH2: false`; `createApp.teardown` destroys it after intake stops. Bun uses native fetch. Do not change the global dispatcher or exception handlers.
+
 ## Context
 
 | Property | Use |
 |:---------|:----|
 | `ctx.signal` | Cancels upstream acquisition and analytical operations. |
-| `ctx.enrich` | Adds empty-result notices and comparison totals on both output surfaces. |
+| `ctx.enrich` | Adds empty-result and missing-data notices, comparison totals and query truncation on both output surfaces. |
 | `ctx.tenantId` | Scopes analytical admission and retained table metadata; unauthenticated callers share the default tenant. |
-| `ctx.log` | Request-scoped logging when needed; messages are client-visible. |
 
 ---
 
@@ -136,6 +155,7 @@ See framework CLAUDE.md and the `api-errors` skill for the full auto-classificat
 src/
   index.ts                              # Identity, tool registration and canvas setup
   config/canvas-config.ts               # Analytical defaults and opt-in drop
+  data/reference.json                   # Generated official geography bundle
   mcp-server/tools/definitions/         # Eight drought tool definitions
   services/canvas-accessor.ts           # Configured framework DataCanvas
   services/drought/
@@ -143,13 +163,14 @@ src/
     dataframe-service.ts                # Admission, staging, metadata and SQL
     usdm-client.ts                      # Fixed-origin bounded HTTP acquisition
     reference-data.ts                   # Geography resolution and reference paging
-    reference-bundle.ts                 # Generated official geography bundle
+    reference-bundle.ts                 # Bundle encoding and validation
     reference-schema.ts                 # Reference contracts
     dates.ts                            # Calendar validation and map-week arithmetic
     types.ts                            # Geography, metrics and provenance
     workflow-schema.ts                  # Public workflow output schemas
     format.ts                           # Lossless field rendering
     workflow-format.ts                  # Lossless workflow rendering
+scripts/update-reference-data.ts        # Maintainer refresh of src/data/reference.json
 ```
 
 ---
