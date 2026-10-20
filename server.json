@@ -6,14 +6,14 @@
     "url": "https://github.com/cyanheads/us-drought-monitor-mcp-server",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/us-drought-monitor-mcp-server",
       "runtimeHint": "npx",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "environmentVariables": [
         {
           "name": "DROUGHT_DATAFRAME_DROP_ENABLED",
@@ -39,7 +39,7 @@
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/us-drought-monitor-mcp-server",
       "runtimeHint": "npx",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "environmentVariables": [
         {
           "name": "DROUGHT_DATAFRAME_DROP_ENABLED",
