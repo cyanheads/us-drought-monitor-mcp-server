@@ -101,6 +101,102 @@ afterEach(async () => {
 });
 
 describe('atomic analytical admission and retention', () => {
+  it('reclaims abandoned service-owned empty engines for a fresh omitted-token stage', async () => {
+    for (let index = 0; index < 4; index++) await stage();
+    clock += 1_800_001;
+    await registry.sweep();
+    await service.withAdmission(ctx('unrelated'), async () => null);
+    await expect(stage()).resolves.toHaveProperty('staging.canvas_id');
+    expect(canvas.countForTenant(ctx())).toBe(1);
+  });
+  it('preserves caller-owned and explicitly reused empty canvases while reclaiming other tenants', async () => {
+    const callerOwned = await canvas.acquire(undefined, ctx());
+    await stage(3, ctx(), { canvas_id: callerOwned.canvasId });
+    const reused = (await stage()).staging!;
+    await stage(3, ctx(), { canvas_id: reused.canvas_id });
+    await stage(3, ctx('abandoned'));
+    await stage(3, ctx('abandoned'));
+    clock += 1_800_001;
+    await registry.sweep();
+    await expect(stage(3, ctx('fresh'))).resolves.toHaveProperty('staging.canvas_id');
+    expect(canvas.countForTenant(ctx('abandoned'))).toBe(0);
+    expect((await service.describe({ canvas_id: callerOwned.canvasId }, ctx())).tables).toEqual([]);
+    expect((await service.describe({ canvas_id: reused.canvas_id }, ctx())).tables).toEqual([]);
+  });
+  it('lets abandoned reused empty canvases expire despite repeated unrelated admissions', async () => {
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const tokens: string[] = [];
+    for (let index = 0; index < 4; index++) {
+      const handle = (await stage()).staging!;
+      tokens.push(handle.canvas_id);
+      await stage(3, ctx(), { canvas_id: handle.canvas_id });
+    }
+    clock += 1_800_001;
+    await registry.sweep();
+    await service.withAdmission(ctx('unrelated'), async () => null);
+    for (let hour = 0; hour < 25; hour++) {
+      clock += 3_600_000;
+      await service.withAdmission(ctx('unrelated'), async () => null);
+    }
+    await expect(service.describe({ canvas_id: tokens[0]! }, ctx())).rejects.toMatchObject({
+      data: { reason: 'canvas_not_found' },
+    });
+    await registry.sweep();
+    await expect(stage()).resolves.toHaveProperty('staging.canvas_id');
+    expect(canvas.countForTenant(ctx())).toBe(1);
+  });
+  it('does not reclaim empty canvases while their tenant has another admitted producer', async () => {
+    for (let index = 0; index < 4; index++) await stage();
+    clock += 1_800_001;
+    await registry.sweep();
+    const entered = deferred();
+    const release = deferred();
+    const producer = service.withAdmission(ctx(), async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    try {
+      await expect(stage(3, ctx('another'))).rejects.toMatchObject({
+        data: { reason: 'staging_capacity_exhausted' },
+      });
+      expect(canvas.countForTenant(ctx())).toBe(4);
+    } finally {
+      release.resolve();
+      await producer;
+    }
+    await expect(stage(3, ctx('another'))).resolves.toHaveProperty('staging.canvas_id');
+  });
+  it('preserves an empty engine until an in-flight analytical query settles', async () => {
+    const first = (await stage()).staging!;
+    for (let index = 1; index < 4; index++) await stage();
+    clock += 1_800_001;
+    await registry.sweep();
+    const entered = deferred();
+    const release = deferred();
+    const provider = canvas.getProvider();
+    const original = provider.query.bind(provider);
+    vi.spyOn(provider, 'query').mockImplementation(async (...args) => {
+      entered.resolve();
+      await release.promise;
+      return original(...args);
+    });
+    const query = service.query(
+      { canvas_id: first.canvas_id, sql: 'SELECT 1 AS value', limit: 1, offset: 0 },
+      ctx(),
+    );
+    await entered.promise;
+    try {
+      await expect(stage(3, ctx('fresh'))).rejects.toMatchObject({
+        data: { reason: 'staging_capacity_exhausted' },
+      });
+      expect(canvas.countForTenant(ctx())).toBe(4);
+    } finally {
+      release.resolve();
+      expect((await query).rows).toEqual([{ value: 1 }]);
+    }
+    await expect(stage(3, ctx('fresh'))).resolves.toHaveProperty('staging.canvas_id');
+  });
   it('rejects the third workflow before its fetch callback and releases empty/inline/failure slots', async () => {
     const entered = deferred();
     const release = deferred();

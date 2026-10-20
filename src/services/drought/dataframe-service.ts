@@ -25,7 +25,10 @@ type Caller = Context;
 type Registration = { rows: number; bytes: number; metadata: Record<string, unknown> };
 type Ledger = {
   inFlight: number;
-  canvases: Map<string, { instance: CanvasInstance; tables: Map<string, Registration> }>;
+  canvases: Map<
+    string,
+    { instance: CanvasInstance; owned: boolean; tables: Map<string, Registration> }
+  >;
 };
 const MAX_ROWS = 250_000;
 const MAX_BYTES = 64 * 1024 * 1024;
@@ -134,14 +137,13 @@ export class DataframeService {
   private readonly tenants = new Map<string, Ledger>();
   private inFlight = 0;
   private queries = 0;
+  private descriptions = 0;
   private tail: Promise<void> = Promise.resolve();
 
   private async locked<T>(work: () => Promise<T> | T): Promise<T> {
     const previous = this.tail;
-    let unlock!: () => void;
-    this.tail = new Promise<void>((resolve) => {
-      unlock = resolve;
-    });
+    const { promise, resolve: unlock } = Promise.withResolvers<void>();
+    this.tail = promise;
     await previous;
     try {
       return await work();
@@ -156,10 +158,35 @@ export class DataframeService {
   private async reconcile(): Promise<void> {
     for (const ledger of this.tenants.values())
       for (const [id, entry] of ledger.canvases) {
+        // Once empty, bookkeeping must not slide a borrowed canvas's idle expiry.
+        if (!entry.tables.size && Date.now() < Date.parse(entry.instance.expiresAt)) continue;
         try {
           const tables = await entry.instance.describe();
           const names = new Set(tables.map((table) => table.name));
           for (const name of entry.tables.keys()) if (!names.has(name)) entry.tables.delete(name);
+        } catch (error) {
+          if (reasonOf(error) === 'canvas_not_found') ledger.canvases.delete(id);
+          else safeError(error);
+        }
+      }
+    this.prune();
+  }
+  private async reclaimEmpty(ctx: Caller): Promise<void> {
+    for (const [tenant, ledger] of this.tenants)
+      for (const [id, entry] of ledger.canvases) {
+        if (
+          !entry.owned ||
+          entry.tables.size ||
+          this.queries ||
+          this.descriptions ||
+          ledger.inFlight > (tenant === (ctx.tenantId ?? 'default') ? 1 : 0)
+        )
+          continue;
+        try {
+          if ((await entry.instance.describe()).length) continue;
+          if (this.queries || this.descriptions) continue;
+          await engine().drop(id, { ...ctx, tenantId: tenant });
+          ledger.canvases.delete(id);
         } catch (error) {
           if (reasonOf(error) === 'canvas_not_found') ledger.canvases.delete(id);
           else safeError(error);
@@ -242,6 +269,7 @@ export class DataframeService {
       return { rows: request.rows, staging: null };
     return await this.locked(async () => {
       await this.reconcile();
+      if (!request.canvas_id) await this.reclaimEmpty(ctx);
       const ledger = this.tenants.get(ctx.tenantId ?? 'default');
       if (!ledger?.inFlight) throw new Error('Staging requires an admitted workflow.');
       let retainedRows = 0;
@@ -326,6 +354,8 @@ export class DataframeService {
         large('response_metadata');
       try {
         instance = await canvas.acquire(request.canvas_id, ctx, { signal: request.signal });
+        const reused = ledger.canvases.get(instance.canvasId);
+        if (reused && request.canvas_id) reused.owned = false;
         const existing = await instance.describe();
         if (existing.length >= 8) capacity();
         const flat = request.rows.map((row) => {
@@ -350,7 +380,7 @@ export class DataframeService {
         if (!fits({ ...metadata, rows, staging })) large('response_envelope');
         let entry = ledger.canvases.get(instance.canvasId);
         if (!entry) {
-          entry = { instance, tables: new Map() };
+          entry = { instance, owned: instance.isNew, tables: new Map() };
           ledger.canvases.set(instance.canvasId, entry);
         }
         entry.tables.set(name, { rows: request.rows.length, bytes, metadata });
@@ -387,6 +417,7 @@ export class DataframeService {
   /** Describe only the caller-supplied token; full metadata requires one table. */
   async describe(input: { canvas_id: string; table_name?: string }, ctx: Caller) {
     if (input.table_name) identifier(input.table_name);
+    this.descriptions++;
     try {
       const instance = await engine().acquire(input.canvas_id, ctx, { signal: ctx.signal });
       const tables = await instance.describe(
@@ -415,6 +446,8 @@ export class DataframeService {
     } catch (error) {
       if (reasonOf(error) === 'dataset_too_large') throw error;
       safeError(error);
+    } finally {
+      this.descriptions--;
     }
   }
   /** Run the wrapped, sentinel-bounded query through every provider SQL gate. */
