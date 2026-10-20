@@ -19,10 +19,17 @@ import {
 import { getCanvas } from '../canvas-accessor.js';
 import type { StageProducer, StageRequest } from './drought-service.js';
 import { renderFields } from './format.js';
+import { boundedMetadata, type MetadataField } from './metadata-pages.js';
+import { renderWorkflow } from './workflow-format.js';
 import type { StageHandle } from './workflow-schema.js';
 
 type Caller = Context;
-type Registration = { rows: number; bytes: number; metadata: Record<string, unknown> };
+type Registration = {
+  rows: number;
+  bytes: number;
+  metadata: Record<string, unknown>;
+  expiresAt: string;
+};
 type Ledger = {
   inFlight: number;
   canvases: Map<
@@ -34,11 +41,22 @@ const MAX_ROWS = 250_000;
 const MAX_BYTES = 64 * 1024 * 1024;
 const CANVAS_RECOVERY =
   'Use the npm or Docker analytical installation with @duckdb/node-api and CANVAS_PROVIDER_TYPE=duckdb; MCPB supports inline results only.';
-function capacity(): never {
+function capacity(expiresAt?: string): never {
   throw new McpError(
     JsonRpcErrorCode.RateLimited,
-    'Analytical staging capacity is occupied; retry with a smaller range or area set.',
-    { reason: 'staging_capacity_exhausted', retryable: true },
+    'Retained analytical capacity is occupied; reuse a returned canvas_id with a free table slot, or retry after table expiry.',
+    {
+      reason: 'staging_capacity_exhausted',
+      retryable: true,
+      ...(expiresAt ? { earliestExpiry: expiresAt } : {}),
+    },
+  );
+}
+function busy(): never {
+  throw new McpError(
+    JsonRpcErrorCode.RateLimited,
+    'Analytical work is busy; retry after active workflows or queries complete.',
+    { reason: 'staging_busy', retryable: true },
   );
 }
 function large(component: string): never {
@@ -123,7 +141,11 @@ function engine() {
   return canvas;
 }
 function fits(value: unknown): boolean {
-  return JSON.stringify(value).length <= 80_000 && renderFields(value).length <= 80_000;
+  return (
+    JSON.stringify(value).length <= 80_000 &&
+    renderFields(value).length <= 80_000 &&
+    renderWorkflow(value).length <= 80_000
+  );
 }
 function identifier(value: string): void {
   if (!CANVAS_IDENTIFIER_REGEX.test(value))
@@ -155,6 +177,14 @@ export class DataframeService {
     for (const [tenant, ledger] of this.tenants)
       if (!ledger.inFlight && !ledger.canvases.size) this.tenants.delete(tenant);
   }
+  private touch(tenant: string | undefined, id: string): void {
+    const canvases = this.tenants.get(tenant ?? 'default')?.canvases;
+    const entry = canvases?.get(id);
+    if (canvases && entry) {
+      canvases.delete(id);
+      canvases.set(id, entry);
+    }
+  }
   private async reconcile(): Promise<void> {
     for (const ledger of this.tenants.values())
       for (const [id, entry] of ledger.canvases) {
@@ -164,6 +194,10 @@ export class DataframeService {
           const tables = await entry.instance.describe();
           const names = new Set(tables.map((table) => table.name));
           for (const name of entry.tables.keys()) if (!names.has(name)) entry.tables.delete(name);
+          for (const table of tables) {
+            const retained = entry.tables.get(table.name);
+            if (retained && table.expiresAt) retained.expiresAt = table.expiresAt;
+          }
         } catch (error) {
           if (reasonOf(error) === 'canvas_not_found') ledger.canvases.delete(id);
           else safeError(error);
@@ -205,7 +239,7 @@ export class DataframeService {
         (ledger?.inFlight ?? 0) >= 2 ||
         (!ledger && this.tenants.size >= 128)
       )
-        capacity();
+        busy();
       if (!ledger) {
         ledger = { inFlight: 0, canvases: new Map() };
         this.tenants.set(ctx.tenantId ?? 'default', ledger);
@@ -237,8 +271,17 @@ export class DataframeService {
           ),
         ].map((name) => [`buckets.${name}`, name]),
       );
-    if (JSON.stringify(metadata).length > 40_000) large('table_metadata');
-    if (!fits({ ...metadata, rows: [], staging: null })) large('response_metadata');
+    let responseMetadata =
+      request.kind === 'timeseries'
+        ? boundedMetadata(
+            metadata,
+            (value) =>
+              JSON.stringify(value).length <= 40_000 && fits({ ...value, rows: [], staging: null }),
+          )
+        : metadata;
+    if (JSON.stringify(responseMetadata).length > 40_000) large('table_metadata');
+    if (!fits({ ...responseMetadata, rows: [], staging: null })) large('response_metadata');
+    const metadataBytes = Buffer.byteLength(JSON.stringify(metadata));
     let bytes = 2;
     let characters = 2;
     for (const [index, row] of request.rows.entries()) {
@@ -262,10 +305,13 @@ export class DataframeService {
     const rows = request.rows.slice(0, previewCount);
     while (
       rows.length &&
-      (JSON.stringify(rows).length > 40_000 || !fits({ ...metadata, rows, staging: null }))
+      (JSON.stringify(rows).length > 40_000 || !fits({ ...responseMetadata, rows, staging: null }))
     )
       rows.pop();
-    if (!request.rows.length || (characters <= 40_000 && rows.length === request.rows.length))
+    if (
+      responseMetadata === metadata &&
+      (!request.rows.length || (characters <= 40_000 && rows.length === request.rows.length))
+    )
       return { rows: request.rows, staging: null };
     return await this.locked(async () => {
       await this.reconcile();
@@ -274,18 +320,41 @@ export class DataframeService {
       if (!ledger?.inFlight) throw new Error('Staging requires an admitted workflow.');
       let retainedRows = 0;
       let retainedBytes = 0;
+      const earliestExpiry = [...ledger.canvases.values()]
+        .flatMap((entry) => [...entry.tables.values()].map((table) => table.expiresAt))
+        .sort()[0];
       for (const entry of ledger.canvases.values())
         for (const table of entry.tables.values()) {
           retainedRows += table.rows;
           retainedBytes += table.bytes;
         }
-      if (retainedRows + request.rows.length > MAX_ROWS || retainedBytes + bytes > MAX_BYTES)
-        capacity();
       if (
-        !request.canvas_id &&
-        [...this.tenants.values()].reduce((count, tenant) => count + tenant.canvases.size, 0) >= 4
+        retainedRows + request.rows.length > MAX_ROWS ||
+        retainedBytes + bytes + metadataBytes > MAX_BYTES
       )
-        capacity();
+        capacity(earliestExpiry);
+      let reuseId = request.canvas_id;
+      if (
+        !reuseId &&
+        [...this.tenants.values()].reduce((count, tenant) => count + tenant.canvases.size, 0) >= 4
+      ) {
+        for (const [id, entry] of [...ledger.canvases].reverse()) {
+          if (entry.owned && (await entry.instance.describe()).length < 8) {
+            reuseId = id;
+            break;
+          }
+        }
+        if (!reuseId)
+          capacity(
+            [...this.tenants.values()]
+              .flatMap((tenant) =>
+                [...tenant.canvases.values()].flatMap((entry) =>
+                  [...entry.tables.values()].map((table) => table.expiresAt),
+                ),
+              )
+              .sort()[0],
+          );
+      }
       const canvas = engine();
       let instance: CanvasInstance | undefined;
       const name = `drought_${randomUUID().replaceAll('-', '')}`;
@@ -297,6 +366,7 @@ export class DataframeService {
           ]),
         ),
       ];
+      if (!keys.length) keys.push('row_id');
       const schema: ColumnSchema[] = keys.map((key) => ({
         name: key,
         type: ['row_id', 'rank', 'dsci', 'hucLevel'].includes(key)
@@ -350,14 +420,21 @@ export class DataframeService {
         canvas_id: request.canvas_id ?? '0000000000',
         expires_at: new Date().toISOString(),
       };
-      if (JSON.stringify({ ...metadata, staging: plannedHandle }).length > 40_000)
+      if (request.kind === 'timeseries')
+        responseMetadata = boundedMetadata(
+          metadata,
+          (value) =>
+            JSON.stringify({ ...value, staging: plannedHandle }).length <= 40_000 &&
+            fits({ ...value, rows: [], staging: plannedHandle }),
+        );
+      if (JSON.stringify({ ...responseMetadata, staging: plannedHandle }).length > 40_000)
         large('response_metadata');
       try {
-        instance = await canvas.acquire(request.canvas_id, ctx, { signal: request.signal });
+        instance = await canvas.acquire(reuseId, ctx, { signal: request.signal });
         const reused = ledger.canvases.get(instance.canvasId);
         if (reused && request.canvas_id) reused.owned = false;
         const existing = await instance.describe();
-        if (existing.length >= 8) capacity();
+        if (existing.length >= 8) capacity(earliestExpiry);
         const flat = request.rows.map((row) => {
           if (!('buckets' in row)) return { ...row };
           const { buckets, ...fields } = row;
@@ -376,15 +453,26 @@ export class DataframeService {
           canvas_id: instance.canvasId,
           expires_at: table.expiresAt,
         };
-        while (rows.length && !fits({ ...metadata, rows, staging })) rows.pop();
-        if (!fits({ ...metadata, rows, staging })) large('response_envelope');
+        while (rows.length && !fits({ ...responseMetadata, rows, staging })) rows.pop();
+        if (!fits({ ...responseMetadata, rows, staging })) large('response_envelope');
         let entry = ledger.canvases.get(instance.canvasId);
         if (!entry) {
           entry = { instance, owned: instance.isNew, tables: new Map() };
           ledger.canvases.set(instance.canvasId, entry);
         }
-        entry.tables.set(name, { rows: request.rows.length, bytes, metadata });
-        return { rows, staging };
+        entry.tables.set(name, {
+          rows: request.rows.length,
+          bytes: bytes + metadataBytes,
+          metadata,
+          expiresAt: table.expiresAt,
+        });
+        ledger.canvases.delete(instance.canvasId);
+        ledger.canvases.set(instance.canvasId, entry);
+        return {
+          rows,
+          staging,
+          ...(responseMetadata === metadata ? {} : { metadata: responseMetadata }),
+        };
       } catch (error) {
         if (instance) {
           try {
@@ -415,7 +503,34 @@ export class DataframeService {
     );
   }
   /** Describe only the caller-supplied token; full metadata requires one table. */
-  async describe(input: { canvas_id: string; table_name?: string }, ctx: Caller) {
+  async describe(
+    input: {
+      canvas_id: string;
+      table_name?: string;
+      metadata_field?: MetadataField;
+      metadata_offset?: number;
+      metadata_limit?: number;
+    },
+    ctx: Caller,
+  ) {
+    if (input.metadata_field && !input.table_name)
+      throw validationError(
+        'Supply table_name with metadata_field to page one retained snapshot.',
+        { reason: 'invalid_metadata_page' },
+      );
+    const offset = input.metadata_offset ?? 0;
+    const limit = input.metadata_limit ?? 20;
+    if (
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    )
+      throw validationError(
+        'Use a nonnegative metadata_offset and metadata_limit from 1 through 100.',
+        { reason: 'invalid_metadata_page' },
+      );
     if (input.table_name) identifier(input.table_name);
     this.descriptions++;
     try {
@@ -427,7 +542,25 @@ export class DataframeService {
         throw new McpError(JsonRpcErrorCode.NotFound, 'Table is absent.', {
           reason: 'missing_table',
         });
-      const result = {
+      const result: {
+        canvas_id: string;
+        expires_at: string;
+        tables: {
+          name: string;
+          kind: 'table' | 'view';
+          rowCount: number;
+          columns: ColumnSchema[];
+          expiresAt: string | null;
+          metadata: Record<string, unknown>;
+        }[];
+        metadata_page?: {
+          field: MetadataField;
+          items: unknown[];
+          total: number;
+          offset: number;
+          next_offset: number | null;
+        };
+      } = {
         canvas_id: instance.canvasId,
         expires_at: instance.expiresAt,
         tables: tables.map((table) => ({
@@ -441,10 +574,56 @@ export class DataframeService {
             : {},
         })),
       };
+      if (input.metadata_field && input.table_name) {
+        const full = this.metadata(ctx.tenantId, instance.canvasId, input.table_name)[
+          input.metadata_field
+        ];
+        if (!Array.isArray(full))
+          throw validationError(
+            'The named table has no retained collection for this metadata_field.',
+            { reason: 'invalid_metadata_page' },
+          );
+        result.tables.forEach((table) => {
+          table.metadata = {};
+        });
+        const items = full.slice(offset, offset + limit);
+        const page = {
+          field: input.metadata_field,
+          items,
+          total: full.length,
+          offset,
+          next_offset: null as number | null,
+        };
+        result.metadata_page = page;
+        const pageFits = () =>
+          fits(result) &&
+          JSON.stringify({ tables: result.tables, metadata_page: page }).length <= 40_000;
+        while (items.length) {
+          page.next_offset = offset + items.length < full.length ? offset + items.length : null;
+          if (pageFits()) break;
+          items.pop();
+        }
+        if (offset < full.length && !items.length) large('metadata_page_item');
+        page.next_offset = offset + items.length < full.length ? offset + items.length : null;
+        if (!pageFits()) large('metadata_page');
+      } else if (
+        !fits(result) ||
+        JSON.stringify(result.tables.map((table) => table.metadata)).length > 40_000
+      ) {
+        for (const table of result.tables) {
+          const full = table.metadata;
+          table.metadata = boundedMetadata(full, (value) => {
+            table.metadata = value;
+            return fits(result) && JSON.stringify(value).length <= 40_000;
+          });
+        }
+      }
       if (!fits(result)) large('table_metadata');
+      this.touch(ctx.tenantId, instance.canvasId);
       return result;
     } catch (error) {
-      if (reasonOf(error) === 'dataset_too_large') throw error;
+      if (['dataset_too_large', 'invalid_metadata_page'].includes(reasonOf(error) ?? ''))
+        throw error;
       safeError(error);
     } finally {
       this.descriptions--;
@@ -455,7 +634,7 @@ export class DataframeService {
     input: { canvas_id: string; sql: string; limit: number; offset: number },
     ctx: Caller,
   ) {
-    if (this.queries >= 2) capacity();
+    if (this.queries >= 2) busy();
     this.queries++;
     const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(5_000)]);
     try {
@@ -503,6 +682,7 @@ export class DataframeService {
           { reason: 'query_row_too_large' },
         );
       signal.throwIfAborted();
+      this.touch(ctx.tenantId, instance.canvasId);
       return output();
     } catch (error) {
       if (['query_row_too_large', 'dataset_too_large'].includes(reasonOf(error) ?? '')) throw error;

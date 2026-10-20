@@ -19,6 +19,7 @@ import {
   type StatisticsType,
   type WeeksObservation,
 } from './types.js';
+import { usdmTransport } from './usdm-transport.js';
 
 /** Fixed official API origin; no caller-configurable URL surface. */
 export const USDM_ORIGIN = 'https://usdmdataservices.unl.edu';
@@ -198,7 +199,7 @@ async function slot(signal: AbortSignal): Promise<() => void> {
 }
 /** Small typed boundary replacing repeated upstream path, query and identity logic. */
 export class UsdmClient {
-  constructor(private readonly fetcher: typeof fetch = fetch) {}
+  constructor(private readonly fetcher: typeof fetch = usdmTransport.fetch) {}
 
   private async request(
     path: string,
@@ -259,7 +260,13 @@ export class UsdmClient {
               );
             throw validationError(
               `USDM rejected the selector or date request (HTTP ${response.status}); check the drought reference identifiers.`,
-              { retryable: false },
+              {
+                reason: 'upstream_request_rejected',
+                retryable: false,
+                recovery: {
+                  hint: 'Call drought_list_reference for supported identifiers and coverage, then retry the drought tool with those selectors and dates.',
+                },
+              },
             );
           }
           if (/^\s*<(?:!doctype\s+html|html[\s>])/i.test(body))
@@ -466,7 +473,7 @@ export class UsdmClient {
       dsci: raw.dsci ?? null,
     }));
   }
-  /** Fetch authoritative county week counts or full streaks. */
+  /** Fetch authoritative county week counts or window-bounded streaks. */
   async weeks(query: WeeksQuery, budget: RequestBudget): Promise<WeeksObservation[]> {
     calendarDate(query.startDate);
     calendarDate(query.endDate);
@@ -527,6 +534,8 @@ export class UsdmClient {
           return shape();
         }
         item.consecutiveWeeks = raw.consecutiveWeeks;
+        item.startMayExtendEarlier = item.startDate === query.startDate;
+        item.endMayContinue = item.endDate === addDays(query.endDate, 6);
         if (
           item.startDate < query.startDate ||
           item.endDate > addDays(query.endDate, 6) ||

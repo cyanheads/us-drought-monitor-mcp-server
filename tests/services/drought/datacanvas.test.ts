@@ -101,6 +101,58 @@ afterEach(async () => {
 });
 
 describe('atomic analytical admission and retention', () => {
+  it('automatically retains and pages overflowing metadata even for zero observations', async () => {
+    const areas = Array.from({ length: 100 }, (_, index) => ({
+      areaType: 'county',
+      id: String(index).padStart(5, '0'),
+      name: 'County '.repeat(30),
+    }));
+    const full = {
+      areas,
+      summary: areas.map((area) => ({ area, observationCount: 0 })),
+      missingAreas: areas,
+      missingObservations: areas.map((area) => ({
+        area,
+        component: 'metric',
+        count: 1,
+        mapDateRuns: [{ startMapDate: '2024-03-05', endMapDate: '2024-03-05', stepDays: 7 }],
+      })),
+    };
+    const result = await stage(0, ctx(), { kind: 'timeseries', metadata: full });
+    expect(result.staging?.row_count).toBe(0);
+    for (const field of ['areas', 'summary', 'missingAreas', 'missingObservations'] as const) {
+      const items: unknown[] = [];
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const description = await service.describe(
+          {
+            canvas_id: result.staging!.canvas_id,
+            table_name: result.staging!.table_name,
+            metadata_field: field,
+            metadata_offset: offset,
+            metadata_limit: 7,
+          },
+          ctx(),
+        );
+        const page = description.metadata_page!;
+        items.push(...page.items);
+        offset = page.next_offset;
+      }
+      expect(items).toEqual(full[field]);
+    }
+  });
+  it('reuses the most recent owned canvas at the process cap without evicting live tables', async () => {
+    const handles = [];
+    for (let index = 0; index < 4; index++) handles.push((await stage()).staging!);
+    const fifth = (await stage()).staging!;
+    expect(fifth.canvas_id).toBe(handles[3]!.canvas_id);
+    expect(
+      (await service.describe({ canvas_id: fifth.canvas_id }, ctx())).tables
+        .map((table) => table.name)
+        .sort(),
+    ).toEqual([handles[3]!.table_name, fifth.table_name].sort());
+    expect(canvas.countForTenant(ctx())).toBe(4);
+  });
   it('reclaims abandoned service-owned empty engines for a fresh omitted-token stage', async () => {
     for (let index = 0; index < 4; index++) await stage();
     clock += 1_800_001;
@@ -212,7 +264,7 @@ describe('atomic analytical admission and retention', () => {
     await entered.promise;
     const fetch = vi.fn();
     await expect(service.withAdmission(ctx('another-tenant'), fetch)).rejects.toMatchObject({
-      data: { reason: 'staging_capacity_exhausted' },
+      data: { reason: 'staging_busy' },
     });
     expect(fetch).not.toHaveBeenCalled();
     release.resolve();
@@ -619,7 +671,7 @@ describe('real DuckDB staged data and bounded SQL', () => {
     const context = createMockContext({ tenantId: 'canvas-test', signal: controller.signal });
     const pending = [service.query(input, context), service.query(input, context)];
     await expect(service.query(input, ctx('other'))).rejects.toMatchObject({
-      data: { reason: 'staging_capacity_exhausted' },
+      data: { reason: 'staging_busy' },
     });
     controller.abort();
     expect(

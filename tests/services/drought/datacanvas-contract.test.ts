@@ -14,8 +14,12 @@ import { getCanvasConfig, seedCanvasDefaults } from '@/config/canvas-config.js';
 import { droughtDataframeDescribeTool as describeTool } from '@/mcp-server/tools/definitions/drought-dataframe-describe.tool.js';
 import { droughtDataframeDropTool as dropTool } from '@/mcp-server/tools/definitions/drought-dataframe-drop.tool.js';
 import { droughtDataframeQueryTool as queryTool } from '@/mcp-server/tools/definitions/drought-dataframe-query.tool.js';
+import { droughtGetTimeseriesTool as timeseriesTool } from '@/mcp-server/tools/definitions/drought-get-timeseries.tool.js';
 import { setCanvas } from '@/services/canvas-accessor.js';
 import { dataframeService } from '@/services/drought/dataframe-service.js';
+import { DroughtService } from '@/services/drought/drought-service.js';
+import { referenceBundle } from '@/services/drought/reference-data.js';
+import { UsdmClient } from '@/services/drought/usdm-client.js';
 import type { StageHandle, WeeklyRow } from '@/services/drought/workflow-schema.js';
 
 let root: string;
@@ -69,7 +73,9 @@ function parity(result: Awaited<ReturnType<typeof runToolContract>>) {
   const decoded = [...rendered.matchAll(/(`{3,})\n([^\n]*)\n\1/g)].map(
     (match) => JSON.parse(match[2] ?? 'null') as unknown,
   );
-  const values = scalars(result.structuredContent).filter(
+  const { totalCount, ...domain } = result.structuredContent as Record<string, unknown>;
+  if (typeof totalCount === 'number') expect(rendered).toContain(`${totalCount} total`);
+  const values = scalars(domain).filter(
     (value) => !(typeof value === 'string' && /^https:\/\/[^\s<>]+$/.test(value)),
   );
   expect(decoded).toEqual(values);
@@ -115,9 +121,106 @@ afterEach(async () => {
   await canvas.shutdown(createMockContext({ tenantId }));
   await rm(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('dataframe public contracts', () => {
+  it('recovers every metadata collection for a 100-county panel on both wire surfaces without refetch', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-19T08:00:00Z'));
+    const counties = referenceBundle.counties.filter((area) => area.state === 'TX').slice(0, 100);
+    const date = '2026-10-13';
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes('/USStatistics/'))
+        return new Response(JSON.stringify([{ mapDate: date, name: 'CONUS', dsci: 1 }]));
+      const dsci = url.pathname.endsWith('/GetDSCI');
+      return new Response(
+        JSON.stringify(
+          counties.flatMap((county, index) =>
+            index % (dsci ? 5 : 3) === 0
+              ? []
+              : [
+                  {
+                    fips: county.id,
+                    county: county.name,
+                    state: 'TX',
+                    mapDate: date,
+                    none: 10,
+                    d0: 90,
+                    d1: 60,
+                    d2: 30,
+                    d3: 12,
+                    d4: 3,
+                    dsci: 195,
+                  },
+                ],
+          ),
+        ),
+      );
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const input = {
+      areas: counties.map((county) => ({ areaType: 'county' as const, aoi: county.id })),
+      startDate: date,
+      endDate: date,
+    };
+    const complete = await new DroughtService(new UsdmClient(fetcher)).produceTimeseries(
+      input,
+      new AbortController().signal,
+    );
+    const produced = await runToolContract(timeseriesTool, input, options());
+    expect(produced.isError).not.toBe(true);
+    const response = timeseriesTool.output.parse(produced.structuredContent);
+    expect(response.staging).not.toBeNull();
+    expect(response.metadata_pages).toBeDefined();
+    const staged = response.staging!;
+    expect(text(produced.content)).toContain('metadata_pages');
+    expect(text(produced.content).length).toBeLessThanOrEqual(80_000);
+    const calls = fetcher.mock.calls.length;
+    const base = { canvas_id: staged.canvas_id, table_name: staged.table_name };
+    const unpaged = await runToolContract(describeTool, base, options());
+    parity(unpaged);
+    for (const field of ['areas', 'summary', 'missingAreas', 'missingObservations'] as const) {
+      const all: unknown[] = [];
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const result: Awaited<ReturnType<typeof runToolContract>> = await runToolContract(
+          describeTool,
+          { ...base, metadata_field: field, metadata_offset: offset, metadata_limit: 100 },
+          options(),
+        );
+        parity(result);
+        const page: ReturnType<typeof describeTool.output.parse>['metadata_page'] =
+          describeTool.output.parse(result.structuredContent).metadata_page;
+        if (!page) throw new Error('Missing retained metadata page');
+        expect(page.total).toBe(complete.metadata[field].length);
+        all.push(...page.items);
+        offset = page.next_offset;
+      }
+      expect(all).toEqual(complete.metadata[field]);
+      const past = await runToolContract(
+        describeTool,
+        { ...base, metadata_field: field, metadata_offset: 1000 },
+        options(),
+      );
+      parity(past);
+      expect(past.structuredContent).toMatchObject({
+        metadata_page: { items: [], next_offset: null },
+      });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+    for (const args of [
+      { canvas_id: base.canvas_id, metadata_field: 'areas' },
+      { ...base, metadata_field: 'areas', metadata_offset: -1 },
+      { ...base, metadata_field: 'areas', metadata_limit: 101 },
+    ] as const) {
+      const invalid = await runToolContract(describeTool, args, options());
+      expect(invalid.isError).toBe(true);
+      expect(text(invalid.content)).toContain('metadata');
+    }
+  });
   it('round-trips exact source metadata, codes and values through both consumption paths', async () => {
     const described = await runToolContract(
       describeTool,

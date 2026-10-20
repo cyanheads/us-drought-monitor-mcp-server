@@ -47,6 +47,162 @@ function fixture(reply: (url: URL) => unknown[] = () => []) {
 }
 afterEach(() => vi.useRealTimers());
 
+describe('canonical acquisition plans', () => {
+  it('acquires every nationwide state once and preserves complete paging', async () => {
+    const { service, fetcher } = fixture((url) => {
+      const state = referenceBundle.states.find(
+        (state) => state.state === url.searchParams.get('aoi'),
+      );
+      return state
+        ? [
+            {
+              fips: `${state.id}001`,
+              county: state.name,
+              state: state.state,
+              nonConsecutiveWeeks: 1,
+            },
+          ]
+        : [];
+    });
+    const result = await service.weeks(
+      {
+        startDate: latest,
+        endDate: latest,
+        minCategory: 'D1',
+        minWeeks: 1,
+        mode: 'non_consecutive',
+        limit: 200,
+      },
+      signal(),
+    );
+    expect(result.rows).toHaveLength(referenceBundle.states.length);
+    expect(fetcher).toHaveBeenCalledTimes(referenceBundle.states.length + 1);
+    expect(result.provenance.sourceUrls).toHaveLength(referenceBundle.states.length + 1);
+  });
+  it('aborts and settles a sibling state before rejecting, and never caches a partial duration result', async () => {
+    let broken = true;
+    let active = 0;
+    let aborted = false;
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/USStatistics/GetDSCI')
+        return json([{ mapDate: latest, name: 'CONUS', dsci: 1 }]);
+      if (!broken) return json([]);
+      if (url.searchParams.get('aoi') === 'AL') return json({ invalid: true });
+      const requestSignal = init?.signal;
+      if (!requestSignal) throw new Error('Missing signal');
+      active++;
+      try {
+        return await new Promise<Response>((_resolve, reject) =>
+          requestSignal.addEventListener(
+            'abort',
+            () => {
+              aborted = true;
+              setTimeout(() => reject(requestSignal.reason), 5);
+            },
+            { once: true },
+          ),
+        );
+      } finally {
+        active--;
+      }
+    });
+    const service = new DroughtService(
+      new UsdmClient(fetcher),
+      undefined,
+      () => new Date('2024-03-12'),
+    );
+    const input = {
+      states: ['AL', 'OR'],
+      startDate: latest,
+      endDate: latest,
+      minCategory: 'D1' as const,
+      minWeeks: 1,
+    };
+    await expect(service.weeks(input, signal())).rejects.toMatchObject({
+      data: { reason: 'upstream_shape_invalid' },
+    });
+    expect(aborted).toBe(true);
+    expect(active).toBe(0);
+    broken = false;
+    expect(await service.weeks(input, signal())).toMatchObject({ totalCount: 0, rows: [] });
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+  it.each(['consecutive', 'non_consecutive'] as const)(
+    'merges per-state %s durations before paging',
+    async (mode) => {
+      const { service, fetcher } = fixture((url) => {
+        const state = url.searchParams.get('aoi');
+        if (state !== 'AL' && state !== 'OR') return [];
+        return [
+          {
+            fips: state === 'AL' ? '01001' : '41001',
+            county: 'County',
+            state,
+            ...(mode === 'consecutive'
+              ? { startDate: '2024-02-27', endDate: '2024-03-11', consecutiveWeeks: 2 }
+              : { nonConsecutiveWeeks: 2 }),
+          },
+        ];
+      });
+      const input = {
+        states: ['OR', 'AL', 'AL'],
+        startDate: '2024-02-27',
+        endDate: latest,
+        minCategory: 'D1' as const,
+        minWeeks: 1,
+        mode,
+        limit: 1,
+      };
+      const first = await service.weeks(input, signal());
+      expect(first.totalCount).toBe(2);
+      const last = await service.weeks(
+        { ...input, cursor: first.nextCursor ?? undefined },
+        signal(),
+      );
+      expect([...first.rows, ...last.rows].map((row) => row.fips)).toEqual(['01001', '41001']);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(
+        first.provenance.sourceUrls.filter(
+          (url) => url.includes('StatisticsCounty') || url.includes('WeeksCounty'),
+        ),
+      ).toHaveLength(2);
+    },
+  );
+  it('uses the national us selector for the canonical pair and preserves individual selectors', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const selector = url.searchParams.get('aoi');
+      const names = selector === 'us' ? ['CONUS', 'Total'] : selector === 'conus' ? ['CONUS'] : [];
+      return json(names.map((name) => raw(latest, { name })));
+    });
+    const service = new DroughtService(
+      new UsdmClient(fetcher),
+      undefined,
+      () => new Date('2024-03-12'),
+    );
+    const result = await service.timeseries(
+      { areas: [{ areaType: 'us', aoi: 'us' }], startDate: latest, endDate: latest },
+      signal(),
+    );
+    expect(result.rows.map((row) => row.id)).toEqual(['conus', 'total']);
+    expect(
+      fetcher.mock.calls
+        .slice(1)
+        .every(([url]) => new URL(String(url)).searchParams.get('aoi') === 'us'),
+    ).toBe(true);
+  });
+  it('guides legacy Connecticut empty lookups while excluding only the eight legacy comparison identities', async () => {
+    const { service } = fixture();
+    const result = await service.current({ area: { areaType: 'county', aoi: '09001' } }, signal());
+    expect(result.found).toBe(false);
+    expect(result.guidance).toContain('planning region');
+    const comparison = await service.compare({ scope: 'counties', state: 'CT' }, signal());
+    expect(comparison.excludedAreas.some((row) => row.area.id === '09001')).toBe(false);
+    expect(comparison.excludedAreas.some((row) => row.area.id === '09110')).toBe(true);
+  });
+});
+
 describe('terminal acquisition lifecycle', () => {
   it.each(['timeseries', 'current', 'comparison'] as const)(
     'aborts and settles sibling HTTP requests before %s rejects',
@@ -570,7 +726,7 @@ describe('complete severity comparison producer', () => {
     expect(new URL(String(fetcher.mock.calls[1]?.[0])).searchParams.get('aoi')?.split(',')).toEqual(
       result.metadata.includedStates,
     );
-    expect(result.rows).toHaveLength(referenceBundle.counties.length);
+    expect(result.rows).toHaveLength(referenceBundle.counties.length - 8);
   });
   it('returns an empty unpublished nationwide comparison rather than metadata overflow', async () => {
     const { service, fetcher } = fixture();
@@ -621,7 +777,13 @@ describe('authoritative weeks and immutable pagination', () => {
       { ...input, states: ['Alabama'], cursor: first.nextCursor ?? undefined, limit: 2 },
       signal(),
     );
-    expect([...first.rows, ...second.rows]).toEqual(streaks);
+    expect([...first.rows, ...second.rows]).toEqual(
+      streaks.map((row) => ({
+        ...row,
+        startMayExtendEarlier: row.startDate === input.startDate,
+        endMayContinue: row.endDate === addDays(input.endDate, 6),
+      })),
+    );
     expect(second).toMatchObject({ totalCount: 3, hasMore: false, nextCursor: null });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });

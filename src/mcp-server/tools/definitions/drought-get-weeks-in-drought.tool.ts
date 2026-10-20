@@ -8,7 +8,7 @@ import { droughtService } from '../../../services/drought/drought-service.js';
 import { AreaSchema, ProvenanceSchema } from '../../../services/drought/types.js';
 import { renderWorkflow } from '../../../services/drought/workflow-format.js';
 import { RangeSchema, WeeksRowSchema } from '../../../services/drought/workflow-schema.js';
-/** County durations retain complete upstream full-week streak boundaries. */
+/** County durations retain observed window-bounded upstream streak boundaries. */
 export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought', {
   title: 'Get county weeks in drought',
   description:
@@ -31,7 +31,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     mode: z
       .enum(['consecutive', 'non_consecutive'])
       .default('consecutive')
-      .describe('Full streaks or qualifying week counts.'),
+      .describe('Window-bounded consecutive streaks or qualifying week counts.'),
     states: z
       .array(z.string().max(200))
       .min(1)
@@ -51,6 +51,10 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     limit: z.number().int().min(1).max(200).default(50).describe('Maximum rows on this page.'),
   }),
   output: z.object({
+    guidance: z
+      .string()
+      .optional()
+      .describe('Coverage guidance for known legacy Connecticut counties.'),
     mode: z.enum(['consecutive', 'non_consecutive']).describe('Selected duration mode.'),
     minCategory: z.enum(['D0', 'D1', 'D2', 'D3', 'D4']).describe('Minimum category.'),
     minWeeks: z.number().int().describe('Minimum qualifying map weeks.'),
@@ -70,6 +74,14 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
   }),
   enrichment: { notice: z.string().optional().describe('Empty threshold or coverage guidance.') },
   errors: [
+    {
+      reason: 'upstream_request_rejected',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'USDM rejects a selector or date request.',
+      recovery:
+        'Call drought_list_reference for supported identifiers and coverage, then retry with those selectors and dates.',
+      thrownBy: 'service',
+    },
     {
       reason: 'ambiguous_area',
       code: JsonRpcErrorCode.ValidationError,
@@ -135,7 +147,8 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
   ],
   async handler(input, ctx) {
     const result = await droughtService.weeks(input, ctx.signal);
-    if (!result.totalCount)
+    if (result.guidance) ctx.enrich.notice(result.guidance);
+    else if (!result.totalCount)
       ctx.enrich.notice(
         result.effectiveRange
           ? 'No counties meet this threshold; call drought_get_weeks_in_drought with a lower minWeeks or minCategory, or a wider date range.'

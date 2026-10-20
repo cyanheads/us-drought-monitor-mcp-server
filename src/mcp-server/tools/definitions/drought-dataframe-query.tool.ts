@@ -138,7 +138,7 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
       thrownBy: 'service',
     },
     {
-      reason: 'staging_capacity_exhausted',
+      reason: 'staging_busy',
       code: JsonRpcErrorCode.RateLimited,
       when: 'Two queries are already active in this process.',
       recovery: 'Retry drought_dataframe_query after the active analytical queries finish.',

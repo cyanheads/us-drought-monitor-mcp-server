@@ -98,6 +98,22 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
   },
   errors: [
     {
+      reason: 'upstream_request_rejected',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'USDM rejects a selector or date request.',
+      recovery:
+        'Call drought_list_reference for supported identifiers and coverage, then retry with those selectors and dates.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'staging_busy',
+      code: JsonRpcErrorCode.RateLimited,
+      when: 'The bounded acquisition admission slots are occupied.',
+      recovery: 'Retry after active workflows or analytical queries finish.',
+      retryable: true,
+      thrownBy: 'service',
+    },
+    {
       reason: 'ambiguous_area',
       code: JsonRpcErrorCode.ValidationError,
       when: 'Several exact names match.',
@@ -162,8 +178,8 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     {
       reason: 'staging_capacity_exhausted',
       code: JsonRpcErrorCode.RateLimited,
-      when: 'Analytical admission or retained capacity is exhausted.',
-      recovery: 'Retry drought_compare_areas later with a smaller county state scope.',
+      when: 'Retained analytical capacity is exhausted.',
+      recovery: 'Reuse a returned canvas_id with a free table slot, or retry after table expiry.',
       retryable: true,
       thrownBy: 'service',
     },

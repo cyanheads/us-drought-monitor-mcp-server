@@ -41,9 +41,11 @@ export interface StageRequest {
   signal: AbortSignal;
 }
 /** Wave-three adapter returns a fitting preview and a handle to every original row. */
-export type StageProducer = (
-  request: StageRequest,
-) => Promise<{ rows: WeeklyRow[] | ComparisonRow[]; staging: StageHandle | null }>;
+export type StageProducer = (request: StageRequest) => Promise<{
+  rows: WeeklyRow[] | ComparisonRow[];
+  staging: StageHandle | null;
+  metadata?: Record<string, unknown>;
+}>;
 /** Losslessly encode dates without merging gaps. */
 export function dateRuns(dates: string[]): DateRun[] {
   const runs: DateRun[] = [];
@@ -55,6 +57,23 @@ export function dateRuns(dates: string[]): DateRun[] {
   return runs;
 }
 const key = (area: Area, date: string) => `${area.areaType}:${area.id}:${date}`;
+const legacyConnecticut = new Set([
+  '09001',
+  '09003',
+  '09005',
+  '09007',
+  '09009',
+  '09011',
+  '09013',
+  '09015',
+]);
+const legacyGuidance =
+  'USDM serves Connecticut by planning region, whose boundaries differ from legacy counties. Call drought_list_reference with topic: counties, state: CT and select a planning-region identifier.';
+function legacyNotice(areas: Area[]): string | undefined {
+  return areas.some((area) => area.areaType === 'county' && legacyConnecticut.has(area.id))
+    ? legacyGuidance
+    : undefined;
+}
 function rangeWeeks(start: string, end: string): number {
   return Math.floor((Date.parse(end) - Date.parse(start)) / 604800000) + 1;
 }
@@ -75,6 +94,8 @@ function envelopeBound<T>(value: T): T {
 const inlineProducer: StageProducer = (request) => {
   if (
     JSON.stringify(request.rows).length > 40_000 ||
+    JSON.stringify(request.metadata).length > 40_000 ||
+    renderWorkflow({ ...request.metadata, rows: request.rows, staging: null }).length > 80_000 ||
     (request.limit !== undefined && request.rows.length > request.limit)
   )
     throw configurationError(
@@ -246,7 +267,17 @@ export class DroughtService {
       ...(first.hucLevel ? { hucLevel: first.hucLevel } : {}),
     });
     if (first.areaType === 'state' || first.areaType === 'us')
-      return [query(areas, areas.map((area) => area.id).join(','))];
+      return [
+        query(
+          areas,
+          first.areaType === 'us' &&
+            areas.length === 2 &&
+            areas.some((area) => area.id === 'conus') &&
+            areas.some((area) => area.id === 'total')
+            ? 'us'
+            : areas.map((area) => area.id).join(','),
+        ),
+      ];
     if (first.areaType !== 'county' || areas.length === 1)
       return areas.map((area) => query([area], area.id));
     const known = areas.filter((area) => area.state);
@@ -405,9 +436,9 @@ export class DroughtService {
       missingAreas: areas.filter((area) => !rows.some((row) => row.id === area.id)),
       missingObservations,
       summary,
+      ...(legacyNotice(areas) ? { guidance: legacyNotice(areas) } : {}),
       provenance: this.source(budget),
     };
-    metadataBound(metadata);
     return { rows, metadata, signal: budget.signal };
   }
   /** Stage complete rows only when needed; otherwise return every inline observation. */
@@ -420,6 +451,7 @@ export class DroughtService {
     });
     return envelopeBound({
       ...full.metadata,
+      ...staged.metadata,
       rows: staged.rows as WeeklyRow[],
       staging: staged.staging,
     });
@@ -445,7 +477,9 @@ export class DroughtService {
       return envelopeBound({
         ...base,
         snapshots: [],
-        guidance: `Published maps span ${AVAILABLE_FROM} through ${latestMapDate}; call drought_list_reference with topic coverage.`,
+        guidance:
+          legacyNotice(areas) ??
+          `Published maps span ${AVAILABLE_FROM} through ${latestMapDate}; call drought_list_reference with topic coverage.`,
         provenance: this.source(budget),
       });
     const queries = this.queries(areas, effectiveMapDate, effectiveMapDate);
@@ -554,11 +588,13 @@ export class DroughtService {
       ...base,
       found: snapshots.length > 0,
       snapshots,
-      guidance: missing.length
-        ? `Missing required observations: ${missing.join('; ')}. Missing data does not mean no drought; call drought_list_reference for the geography type.`
-        : snapshots.length
-          ? null
-          : 'No snapshot observations are available for this geography and week; call drought_list_reference for the geography type.',
+      guidance:
+        legacyNotice(areas) ??
+        (missing.length
+          ? `Missing required observations: ${missing.join('; ')}. Missing data does not mean no drought; call drought_list_reference for the geography type.`
+          : snapshots.length
+            ? null
+            : 'No snapshot observations are available for this geography and week; call drought_list_reference for the geography type.'),
       provenance: this.source(budget),
     });
   }
@@ -573,7 +609,11 @@ export class DroughtService {
       .filter((value): value is string => !!value && (!state || value === state));
     const areas: Area[] = (
       input.scope === 'states' ? referenceBundle.states : referenceBundle.counties
-    ).filter((area) => !state || area.state === state);
+    ).filter(
+      (area) =>
+        (!state || area.state === state) &&
+        !(area.areaType === 'county' && legacyConnecticut.has(area.id)),
+    );
     if (input.date) calendarDate(input.date);
     if (input.baselineDate) calendarDate(input.baselineDate);
     if (input.date && input.baselineDate && input.baselineDate > input.date)
@@ -596,6 +636,7 @@ export class DroughtService {
             ? areas.map((area) => area.id).join(',')
             : includedStates.join(','),
         areas,
+        filterToRequested: input.scope === 'counties',
         startDate: date,
         endDate: date,
       };
@@ -728,23 +769,29 @@ export class DroughtService {
       throw validationError('minWeeks exceeds the inclusive requested map weeks.', {
         reason: 'invalid_date_range',
       });
-    const budget = new RequestBudget(signal, 2);
+    const budget = new RequestBudget(signal, 1 + states.length);
     const latestMapDate = await this.latest(budget);
     const effectiveRange = this.clipped(snapped.startDate, snapped.endDate, latestMapDate);
     const mode = input.mode ?? 'consecutive';
     const rows =
       effectiveRange &&
       input.minWeeks <= rangeWeeks(effectiveRange.startDate, effectiveRange.endDate)
-        ? await this.client.weeks(
-            {
-              states,
-              ...effectiveRange,
-              minCategory: input.minCategory,
-              minWeeks: input.minWeeks,
-              mode,
-            },
-            budget,
-          )
+        ? (
+            await budget.all(
+              states.map((state) =>
+                this.client.weeks(
+                  {
+                    states: [state],
+                    ...effectiveRange,
+                    minCategory: input.minCategory,
+                    minWeeks: input.minWeeks,
+                    mode,
+                  },
+                  budget,
+                ),
+              ),
+            )
+          ).flat()
         : [];
     const filtered = rows
       .filter((row) => !county || row.fips === county.id)
@@ -763,6 +810,7 @@ export class DroughtService {
       effectiveRange,
       latestMapDate,
       totalCount: filtered.length,
+      ...(county && legacyNotice([county]) ? { guidance: legacyNotice([county]) } : {}),
       provenance: this.source(budget),
     };
     metadataBound(metadata);
@@ -777,7 +825,9 @@ export class DroughtService {
           cursor: undefined,
           limit: undefined,
           mode: input.mode ?? 'consecutive',
-          states: input.states?.map((state) => resolveState(state).id).sort(),
+          states: input.states
+            ? [...new Set(input.states.map((state) => resolveState(state).id))].sort()
+            : undefined,
           county: input.county
             ? this.resolve([{ areaType: 'county', aoi: input.county }])[0]?.id
             : undefined,

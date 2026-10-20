@@ -32,6 +32,42 @@ const json = (value: unknown) =>
 afterEach(() => vi.useRealTimers());
 
 describe('USDM HTTP boundary', () => {
+  it('declares rejected upstream requests with actionable recovery', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 400 }));
+    await expect(new UsdmClient(fetcher).dsci(query, budget())).rejects.toMatchObject({
+      data: {
+        reason: 'upstream_request_rejected',
+        recovery: { hint: expect.stringContaining('drought_list_reference') },
+      },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('discloses both clipped consecutive boundaries using the Monday end', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      json([
+        {
+          fips: '01001',
+          county: 'Autauga County',
+          state: 'AL',
+          startDate: '2024-02-27',
+          endDate: '2024-03-11',
+          consecutiveWeeks: 2,
+        },
+      ]),
+    );
+    const result = await new UsdmClient(fetcher).weeks(
+      {
+        states: ['AL'],
+        startDate: query.startDate,
+        endDate: query.endDate,
+        minCategory: 'D1',
+        minWeeks: 1,
+        mode: 'consecutive',
+      },
+      budget(),
+    );
+    expect(result[0]).toMatchObject({ startMayExtendEarlier: true, endMayContinue: true });
+  });
   it('sends only documented endpoint/query/header fields and normalizes nullable buckets', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json([row]));
     const rows = await new UsdmClient(fetcher).metric(query, budget());

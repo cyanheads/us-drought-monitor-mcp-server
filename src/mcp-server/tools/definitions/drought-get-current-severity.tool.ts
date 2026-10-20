@@ -70,6 +70,14 @@ export const droughtGetCurrentSeverityTool = tool('drought_get_current_severity'
   enrichment: { notice: z.string().optional().describe('Missing observation guidance.') },
   errors: [
     {
+      reason: 'upstream_request_rejected',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'USDM rejects a selector or date request.',
+      recovery:
+        'Call drought_list_reference for supported identifiers and coverage, then retry with those selectors and dates.',
+      thrownBy: 'service',
+    },
+    {
       reason: 'ambiguous_area',
       code: JsonRpcErrorCode.ValidationError,
       when: 'Several exact names match.',

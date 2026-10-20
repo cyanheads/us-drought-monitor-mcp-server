@@ -117,8 +117,22 @@ export const WeeksRowSchema = z
     fips: z.string().describe('Five-digit county FIPS.'),
     county: z.string().describe('County name.'),
     state: z.string().describe('State postal code.'),
-    startDate: z.string().optional().describe('Full consecutive streak start.'),
-    endDate: z.string().optional().describe('Full consecutive streak Monday end.'),
+    startDate: z
+      .string()
+      .optional()
+      .describe('Observed consecutive streak start within the effective window.'),
+    endDate: z
+      .string()
+      .optional()
+      .describe('Observed consecutive streak Monday end within the effective window.'),
+    startMayExtendEarlier: z
+      .boolean()
+      .optional()
+      .describe('Start touches the effective window boundary; earlier continuation is unknown.'),
+    endMayContinue: z
+      .boolean()
+      .optional()
+      .describe('Monday end touches the effective window boundary; later continuation is unknown.'),
     consecutiveWeeks: z.number().int().optional().describe('Consecutive map weeks.'),
     nonConsecutiveWeeks: z.number().int().optional().describe('Qualifying map-week count.'),
   })

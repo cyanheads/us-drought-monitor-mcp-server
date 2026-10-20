@@ -127,6 +127,8 @@ export type WeeksObservation = {
   startDate?: string;
   endDate?: string;
   consecutiveWeeks?: number;
+  startMayExtendEarlier?: boolean;
+  endMayContinue?: boolean;
   nonConsecutiveWeeks?: number;
 };
 /** Exact USDM attribution. */

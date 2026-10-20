@@ -121,6 +121,55 @@ afterEach(() => {
 });
 
 describe('drought public consumption paths', () => {
+  it.each(['09001', 'Fairfield County, CT'])(
+    'preserves empty success and planning-region guidance for %s on every observation workflow',
+    async (aoi) => {
+      const definitions = await tools((url) =>
+        url.pathname === '/api/USStatistics/GetDSCI'
+          ? [{ mapDate: latest, name: 'CONUS', dsci: 1 }]
+          : [],
+      );
+      const results = [
+        await runToolContract(definitions.current, { area: { areaType: 'county', aoi } }),
+        await runToolContract(definitions.timeseries, {
+          areas: [{ areaType: 'county', aoi }],
+          ...range,
+        }),
+        await runToolContract(definitions.weeks, {
+          county: aoi,
+          ...range,
+          minCategory: 'D1',
+          minWeeks: 1,
+        }),
+      ];
+      for (const result of results) {
+        expect(result.isError).not.toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          guidance: expect.stringContaining('planning region'),
+          notice: expect.stringContaining('state: CT'),
+        });
+        expect(text(result)).toContain('planning region');
+        expect(text(result)).toContain('drought_list_reference');
+      }
+    },
+  );
+  it('declares and mirrors upstream request rejection without retry', async () => {
+    const definitions = await tools();
+    definitions.fetcher.mockResolvedValue(new Response('', { status: 400 }));
+    const result = await runToolContract(definitions.current, { area });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        data: {
+          reason: 'upstream_request_rejected',
+          recovery: { hint: expect.stringContaining('drought_list_reference') },
+        },
+      },
+    });
+    expect(text(result)).toContain('upstream_request_rejected');
+    expect(text(result)).toContain('drought_list_reference');
+    expect(definitions.fetcher).toHaveBeenCalledTimes(1);
+  });
   it('validates actual snapshot, timeseries, comparison and weeks results and renders every returned row', async () => {
     const definitions = await tools();
     const results = await Promise.all([
@@ -162,7 +211,9 @@ describe('drought public consumption paths', () => {
       change: null,
       rank: 1,
     });
-    expect(durations.rows).toEqual([duration]);
+    expect(durations.rows).toEqual([
+      { ...duration, startMayExtendEarlier: true, endMayContinue: true },
+    ]);
     for (const result of results) {
       expect(text(result)).toContain(latest);
       expect(text(result)).toContain('provenance');

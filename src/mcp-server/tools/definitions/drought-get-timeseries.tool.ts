@@ -45,6 +45,27 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
       .describe('Canvas token from a previous drought producer to reuse when staging.'),
   }),
   output: z.object({
+    guidance: z
+      .string()
+      .optional()
+      .describe('Coverage guidance for known legacy Connecticut counties.'),
+    metadata_pages: z
+      .record(
+        z.string(),
+        z.object({
+          total: z.number().int().describe('Complete retained collection size.'),
+          returned: z.number().int().describe('Items in this inline first page.'),
+          next_offset: z
+            .number()
+            .int()
+            .nullable()
+            .describe(
+              'Continue with drought_dataframe_describe metadata_field and this offset, or null.',
+            ),
+        }),
+      )
+      .optional()
+      .describe('Present only when complete metadata requires automatic continuation.'),
     areas: z.array(AreaSchema).describe('Resolved deduplicated areas.'),
     requestedRange: RangeSchema.describe('Original requested dates.'),
     effectiveRange: RangeSchema.nullable().describe('Published coverage intersection.'),
@@ -62,6 +83,22 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
   }),
   enrichment: { notice: z.string().optional().describe('Empty or partial-data guidance.') },
   errors: [
+    {
+      reason: 'upstream_request_rejected',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'USDM rejects a selector or date request.',
+      recovery:
+        'Call drought_list_reference for supported identifiers and coverage, then retry with those selectors and dates.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'staging_busy',
+      code: JsonRpcErrorCode.RateLimited,
+      when: 'The bounded acquisition admission slots are occupied.',
+      recovery: 'Retry after active workflows or analytical queries finish.',
+      retryable: true,
+      thrownBy: 'service',
+    },
     {
       reason: 'ambiguous_area',
       code: JsonRpcErrorCode.ValidationError,
@@ -137,8 +174,8 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     {
       reason: 'staging_capacity_exhausted',
       code: JsonRpcErrorCode.RateLimited,
-      when: 'Analytical admission or retained capacity is exhausted.',
-      recovery: 'Retry drought_get_timeseries later with a smaller range or area set.',
+      when: 'Retained analytical capacity is exhausted.',
+      recovery: 'Reuse a returned canvas_id with a free table slot, or retry after table expiry.',
       retryable: true,
       thrownBy: 'service',
     },
@@ -163,7 +200,8 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     const result = await dataframeService.withAdmission(ctx, (stage) =>
       droughtService.timeseries(input, ctx.signal, stage),
     );
-    if (!result.rowCount)
+    if (result.guidance) ctx.enrich.notice(result.guidance);
+    else if (!result.rowCount)
       ctx.enrich.notice(
         'No USDM observations are available for the resolved areas and published weeks; call drought_get_timeseries with a different range or drought_list_reference(topic=coverage).',
       );

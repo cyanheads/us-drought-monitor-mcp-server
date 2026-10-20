@@ -7,6 +7,7 @@ import { CANVAS_IDENTIFIER_REGEX, CanvasIdSchema } from '@cyanheads/mcp-ts-core/
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { dataframeService } from '../../../services/drought/dataframe-service.js';
 import { renderFields } from '../../../services/drought/format.js';
+import { METADATA_FIELDS } from '../../../services/drought/metadata-pages.js';
 
 /** Describe bounded schemas, or full metadata for one named table. */
 export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
@@ -26,10 +27,39 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
       ])
       .optional()
       .describe('Table name from the stage handle; omit for schema summaries.'),
+    metadata_field: z
+      .enum(METADATA_FIELDS)
+      .optional()
+      .describe('Retained metadata collection to page; requires table_name.'),
+    metadata_offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Items to skip in the retained metadata snapshot.'),
+    metadata_limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .default(20)
+      .describe('Maximum metadata items, further bounded by response budgets.'),
   }),
   output: z.object({
     canvas_id: z.string().describe('Supplied canvas token.'),
     expires_at: z.string().describe('Actual canvas expiry.'),
+    metadata_page: z
+      .object({
+        field: z.enum(METADATA_FIELDS).describe('Requested metadata collection.'),
+        items: z
+          .array(z.unknown())
+          .describe('Unchanged complete items from the retained snapshot.'),
+        total: z.number().int().describe('Total collection items.'),
+        offset: z.number().int().describe('Requested item offset.'),
+        next_offset: z.number().int().nullable().describe('Next offset, or null at the end.'),
+      })
+      .optional()
+      .describe('One complete bounded metadata page for a named table.'),
     tables: z
       .array(
         z
@@ -58,6 +88,14 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
       .describe('Tables only in this specified canvas.'),
   }),
   errors: [
+    {
+      reason: 'invalid_metadata_page',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'Metadata pagination lacks a named table or uses an unavailable collection.',
+      recovery:
+        'Supply table_name and a metadata_field from the staged time-series response, with a nonnegative offset.',
+      thrownBy: 'service',
+    },
     {
       reason: 'canvas_unavailable',
       code: JsonRpcErrorCode.ConfigurationError,
@@ -91,10 +129,26 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
       thrownBy: 'service',
     },
   ],
-  handler: (input, ctx) =>
-    dataframeService.describe(
-      { canvas_id: input.canvas_id, ...(input.table_name ? { table_name: input.table_name } : {}) },
+  enrichment: {
+    totalCount: z
+      .number()
+      .int()
+      .optional()
+      .describe('Total items in the requested retained metadata collection.'),
+  },
+  async handler(input, ctx) {
+    const result = await dataframeService.describe(
+      {
+        canvas_id: input.canvas_id,
+        ...(input.table_name ? { table_name: input.table_name } : {}),
+        ...(input.metadata_field ? { metadata_field: input.metadata_field } : {}),
+        metadata_offset: input.metadata_offset,
+        metadata_limit: input.metadata_limit,
+      },
       ctx,
-    ),
+    );
+    if (result.metadata_page) ctx.enrich.total(result.metadata_page.total);
+    return result;
+  },
   format: (result) => [{ type: 'text', text: renderFields(result) }],
 });
