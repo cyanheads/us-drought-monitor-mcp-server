@@ -16,6 +16,13 @@
       "version": "0.1.0",
       "environmentVariables": [
         {
+          "name": "DROUGHT_DATAFRAME_DROP_ENABLED",
+          "description": "Set true to expose drought_dataframe_drop for disposable analytical tables; false keeps it disabled.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
           "name": "MCP_LOG_LEVEL",
           "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
           "format": "string",
@@ -34,6 +41,13 @@
       "runtimeHint": "npx",
       "version": "0.1.0",
       "environmentVariables": [
+        {
+          "name": "DROUGHT_DATAFRAME_DROP_ENABLED",
+          "description": "Set true to expose drought_dataframe_drop for disposable analytical tables; false keeps it disabled.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
         {
           "name": "MCP_TRANSPORT_TYPE",
           "description": "Selects the HTTP transport.",

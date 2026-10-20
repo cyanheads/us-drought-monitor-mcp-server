@@ -11,13 +11,33 @@
   "homepage": "https://github.com/cyanheads/us-drought-monitor-mcp-server#readme",
   "repository": "https://github.com/cyanheads/us-drought-monitor-mcp-server",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "mcp-server", "model-context-protocol", "ai-agents", "ai-tools", "typescript", "cyanheads", "drought", "usdm", "dsci", "climate", "agriculture", "water-resources"],
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "ai-agents", "ai-tools", "typescript", "cyanheads", "bun", "stdio", "streamable-http", "drought-monitor", "hydrology", "duckdb", "drought", "usdm", "dsci", "climate", "agriculture", "water-resources"],
+  "userConfig": {
+    "DROUGHT_DATAFRAME_DROP_ENABLED": {
+      "type": "string",
+      "title": "Enable table removal",
+      "description": "Set true to expose drought_dataframe_drop for disposable analytical tables; false keeps it disabled.",
+      "sensitive": false,
+      "required": false,
+      "default": "false"
+    },
+    "MCP_LOG_LEVEL": {
+      "type": "string",
+      "title": "Log level",
+      "description": "Minimum log level: debug, info, warn, or error.",
+      "sensitive": false,
+      "required": false,
+      "default": "info"
+    }
+  },
   "mcpServers": {
     "us-drought-monitor-mcp-server": {
       "command": "npx",
       "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"],
       "env": {
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "DROUGHT_DATAFRAME_DROP_ENABLED": "${user_config.DROUGHT_DATAFRAME_DROP_ENABLED}",
+        "MCP_LOG_LEVEL": "${user_config.MCP_LOG_LEVEL}"
       }
     }
   }

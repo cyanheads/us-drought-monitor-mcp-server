@@ -2,6 +2,7 @@
   "us-drought-monitor-mcp-server": {
     "command": "npx",
     "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"],
+    "env_vars": ["DROUGHT_DATAFRAME_DROP_ENABLED", "MCP_LOG_LEVEL"],
     "env": {
       "MCP_TRANSPORT_TYPE": "stdio"
     }
