@@ -70,8 +70,7 @@ export const droughtListReferenceTool = tool('drought_list_reference', {
       reason: 'invalid_cursor',
       code: JsonRpcErrorCode.ValidationError,
       when: 'The cursor is malformed or filters changed.',
-      recovery:
-        'Restart drought_list_reference or drought_get_weeks_in_drought without cursor and retain the same filters.',
+      recovery: 'Restart drought_list_reference without cursor and retain the same filters.',
       thrownBy: 'service',
     },
     {
@@ -80,6 +79,14 @@ export const droughtListReferenceTool = tool('drought_list_reference', {
       when: 'Filters do not belong to the selected topic.',
       recovery:
         'Call drought_list_reference with topic area_types and use filters belonging to the selected topic.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'dataset_too_large',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A complete reference record exceeds the response budget.',
+      recovery:
+        'Use a narrower nameContains filter in drought_list_reference to select other records.',
       thrownBy: 'service',
     },
   ],
