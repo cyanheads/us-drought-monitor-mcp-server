@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "us-drought-monitor-mcp-server",
+  "version": "0.1.0",
+  "description": "Query U.S. Drought Monitor severity, DSCI, population, and drought duration via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/us-drought-monitor-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/us-drought-monitor-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "ai-agents", "ai-tools", "typescript", "cyanheads", "drought", "usdm", "dsci", "climate", "agriculture", "water-resources"],
+  "mcpServers": {
+    "us-drought-monitor-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}

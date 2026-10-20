@@ -1,0 +1,25 @@
+{
+  "name": "us-drought-monitor-mcp-server",
+  "version": "0.1.0",
+  "description": "Query U.S. Drought Monitor severity, DSCI, population, and drought duration via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/us-drought-monitor-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/us-drought-monitor-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "ai-agents", "ai-tools", "typescript", "cyanheads", "drought", "usdm", "dsci", "climate", "agriculture", "water-resources"],
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "us-drought-monitor-mcp-server",
+    "shortDescription": "Query U.S. Drought Monitor severity and weekly drought statistics.",
+    "longDescription": "Explore weekly U.S. Drought Monitor statistics across states, counties, watersheds, tribal areas, and climate divisions. Retrieve current severity and historical series, compare areas, and count weeks in drought. Large result tables support read-only SQL analysis through DataCanvas. No API key is required.",
+    "developerName": "cyanheads",
+    "category": "data",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/cyanheads/us-drought-monitor-mcp-server#readme",
+    "defaultPrompt": []
+  }
+}

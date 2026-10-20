@@ -1,0 +1,9 @@
+{
+  "us-drought-monitor-mcp-server": {
+    "command": "npx",
+    "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"],
+    "env": {
+      "MCP_TRANSPORT_TYPE": "stdio"
+    }
+  }
+}
