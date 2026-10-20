@@ -96,6 +96,18 @@ export class RequestBudget {
     ]);
     this.preflight(plannedRequests);
   }
+  /** Cancel and settle every acquisition before returning its original failure. */
+  async all<const T extends readonly unknown[]>(
+    operations: T,
+  ): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> {
+    try {
+      return await Promise.all(operations);
+    } catch (error) {
+      this.controller.abort(error);
+      await Promise.allSettled(operations);
+      throw error;
+    }
+  }
   /** Reject a plan before the first network operation. */
   preflight(plannedRequests: number): void {
     if (plannedRequests > 64)

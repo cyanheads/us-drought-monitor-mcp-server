@@ -305,9 +305,9 @@ export class DroughtService {
       ? this.queries(areas, effectiveRange.startDate, effectiveRange.endDate)
       : [];
     budget.preflight(budget.requests + queries.length * 2);
-    const parts = await Promise.all(
+    const parts = await budget.all(
       queries.map(async (query) =>
-        Promise.all([
+        budget.all([
           this.client.metric({ ...query, metric, statisticsType }, budget),
           this.client.dsci(query, budget),
         ]),
@@ -451,9 +451,9 @@ export class DroughtService {
     const queries = this.queries(areas, effectiveMapDate, effectiveMapDate);
     const populationSupported = ['us', 'state', 'county'].includes(input.area.areaType);
     budget.preflight(budget.requests + queries.length * (populationSupported ? 5 : 4));
-    const components = await Promise.all(
+    const components = await budget.all(
       queries.map(async (query) => {
-        const [cumulative, categorical, miles, population, dsci] = await Promise.all([
+        const [cumulative, categorical, miles, population, dsci] = await budget.all([
           this.client.metric(
             { ...query, metric: 'area_percent', statisticsType: 'cumulative' },
             budget,
@@ -623,7 +623,7 @@ export class DroughtService {
       (baselineMapDate === null ||
         (baselineMapDate >= AVAILABLE_FROM && baselineMapDate <= latestMapDate));
     const [target, baseline] = publishedDates
-      ? await Promise.all([
+      ? await budget.all([
           acquire(targetMapDate),
           baselineMapDate
             ? acquire(baselineMapDate)

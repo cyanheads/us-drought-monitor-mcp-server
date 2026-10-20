@@ -2,7 +2,9 @@
  * @fileoverview Real drought workflows exercised at the injected HTTP boundary.
  * @module tests/services/drought/workflows
  */
+import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DataframeService } from '@/services/drought/dataframe-service.js';
 import { addDays } from '@/services/drought/dates.js';
 import { DroughtService, type StageRequest } from '@/services/drought/drought-service.js';
 import { referenceBundle } from '@/services/drought/reference-data.js';
@@ -44,6 +46,81 @@ function fixture(reply: (url: URL) => unknown[] = () => []) {
   };
 }
 afterEach(() => vi.useRealTimers());
+
+describe('terminal acquisition lifecycle', () => {
+  it.each(['timeseries', 'current', 'comparison'] as const)(
+    'aborts and settles sibling HTTP requests before %s rejects',
+    async (workflow) => {
+      const caller = new AbortController();
+      const siblingSignals: AbortSignal[] = [];
+      let active = 0;
+      let settled = 0;
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/USStatistics/GetDSCI')
+          return json([{ mapDate: latest, name: 'CONUS', dsci: 1 }]);
+        const failing =
+          workflow === 'comparison'
+            ? url.searchParams.get('startdate') === '3/5/2024'
+            : url.pathname.endsWith('ByAreaPercent');
+        if (failing) return json({ invalid: 'not an array' });
+        const requestSignal = init?.signal;
+        if (!requestSignal) throw new Error('Expected an HTTP abort signal');
+        siblingSignals.push(requestSignal);
+        active++;
+        try {
+          return await new Promise<Response>((_resolve, reject) => {
+            requestSignal.addEventListener(
+              'abort',
+              () => {
+                // Actual cleanup can finish after cancellation has been delivered.
+                setTimeout(() => reject(requestSignal.reason), 5);
+              },
+              { once: true },
+            );
+          });
+        } finally {
+          active--;
+          settled++;
+        }
+      });
+      const service = new DroughtService(
+        new UsdmClient(fetcher),
+        undefined,
+        () => new Date('2024-03-12T08:00:00Z'),
+      );
+      try {
+        const admission = new DataframeService();
+        const result = admission.withAdmission<unknown>(
+          createMockContext({ signal: caller.signal }),
+          () =>
+            workflow === 'timeseries'
+              ? service.timeseries(
+                  { areas: [state], startDate: latest, endDate: latest },
+                  caller.signal,
+                )
+              : workflow === 'current'
+                ? service.current({ area: state }, caller.signal)
+                : service.compare(
+                    { scope: 'states', date: latest, baselineDate: '2024-02-27' },
+                    caller.signal,
+                  ),
+        );
+        await expect(result).rejects.toMatchObject({
+          data: { reason: 'upstream_shape_invalid', retryable: false },
+        });
+        expect(siblingSignals.length).toBeGreaterThan(0);
+        expect(siblingSignals.every((item) => item.aborted)).toBe(true);
+        expect(active).toBe(0);
+        expect(settled).toBe(siblingSignals.length);
+        expect(caller.signal.aborted).toBe(false);
+      } finally {
+        caller.abort();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    },
+  );
+});
 
 describe('published snapshot workflow', () => {
   it('uses actual publication on Tuesday, single-flights discovery and expires it after five minutes', async () => {
