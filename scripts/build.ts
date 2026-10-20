@@ -15,7 +15,7 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { cp, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -135,6 +135,8 @@ async function main() {
     'tsc-alias',
   );
   if (!alias.ok) process.exit(1);
+
+  await cp(join(ROOT_DIR, 'src', 'data'), join(DIST_DIR, 'data'), { recursive: true });
 
   const totalMs = Math.round(performance.now() - totalStart);
 
