@@ -174,8 +174,8 @@ export class DroughtService {
               areaType: 'us',
               aoi: 'conus',
               areas: [{ areaType: 'us', id: 'conus', name: 'CONUS' }],
-              startDate: addDays(today, -14),
-              endDate: today,
+              startDate: mapDate(addDays(today, -14)),
+              endDate: mapDate(today),
             },
             sharedBudget,
           );
@@ -766,9 +766,12 @@ export class DroughtService {
     ].sort();
     const snapped = mapRange(input.startDate, input.endDate);
     if (input.minWeeks > rangeWeeks(snapped.startDate, snapped.endDate))
-      throw validationError('minWeeks exceeds the inclusive requested map weeks.', {
-        reason: 'invalid_date_range',
-      });
+      throw validationError(
+        'minWeeks exceeds the inclusive requested map weeks; lower minWeeks or widen startDate and endDate.',
+        {
+          reason: 'invalid_date_range',
+        },
+      );
     const budget = new RequestBudget(signal, 1 + states.length);
     const latestMapDate = await this.latest(budget);
     const effectiveRange = this.clipped(snapped.startDate, snapped.endDate, latestMapDate);

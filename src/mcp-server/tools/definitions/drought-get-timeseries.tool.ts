@@ -31,8 +31,14 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
   annotations: { readOnlyHint: true, openWorldHint: true },
   input: z.object({
     areas: z.array(GeographySchema).min(1).max(100).describe('Explicit homogeneous geographies.'),
-    startDate: z.string().max(10).describe('First requested calendar date, YYYY-MM-DD.'),
-    endDate: z.string().max(10).describe('Last requested calendar date, YYYY-MM-DD.'),
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe('First requested calendar date, YYYY-MM-DD.'),
+    endDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe('Last requested calendar date, YYYY-MM-DD.'),
     metric: MetricSchema.default('area_percent').describe(
       'Measure; population supports US, state and county only.',
     ),

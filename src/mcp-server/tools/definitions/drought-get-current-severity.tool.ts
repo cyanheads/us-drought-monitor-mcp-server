@@ -31,6 +31,7 @@ export const droughtGetCurrentSeverityTool = tool('drought_get_current_severity'
     date: z
       .string()
       .max(10)
+      .regex(/^(?:|\d{4}-\d{2}-\d{2})$/)
       .optional()
       .describe('Calendar date YYYY-MM-DD; defaults to latest published map.'),
   }),

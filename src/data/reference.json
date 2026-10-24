@@ -1,90 +1,104 @@
 {
   "schemaVersion": 2,
-  "bundleVersion": "2026-10-20-2026-10-13",
+  "bundleVersion": "2026-10-24-2026-10-20",
   "sourceMetadata": [
     {
       "url": "https://www2.census.gov/geo/docs/reference/state.txt",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
       "sha256": "bea4e03f71a1fa0045ae732aabad11fa541e5932b071c2369bb0d325e8cba5a0",
       "recordCount": 52,
       "vintage": "Census state codes"
     },
     {
       "url": "https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
       "sha256": "9f6e5f6eb6ac2f5e9a36d5fd01dec77991bddc75118f748a069441a4782970d6",
       "recordCount": 3221,
       "vintage": "Census 2020"
     },
     {
-      "url": "https://usdmdataservices.unl.edu/api/CountyStatistics/GetDSCI?aoi=AL,AK,AZ,AR,CA,CO,CT,DE,DC,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY,PR&startdate=10/13/2026&enddate=10/13/2026",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "4ad8419b58b66c42a0767d893148a593ce2e418ed5f50b3537943dff82efb5a6",
+      "url": "https://usdmdataservices.unl.edu/api/CountyStatistics/GetDSCI?aoi=AL,AK,AZ,AR,CA,CO,CT,DE,DC,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY,PR&startdate=10/10/2026&enddate=10/24/2026",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "6453ca1ae6eac81057e666203d1edeea4192ec1e60a39258277e029a88505fe9",
       "recordCount": 3222,
-      "vintage": "2026-10-13"
+      "vintage": "2026-10-20"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?tribal",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "ceabf8e48f70cebb0977f0ac134857a2001b6161b0fb57969735f788394e236a",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "0b88da067f95779f94a688e4bf951c5531db19bbf397051a4d778cb1e5027dcc",
       "recordCount": 323,
-      "vintage": "USDM AOI 2026-10-20"
+      "vintage": "USDM AOI 2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?climdiv",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "f1019fa170f9b4780909ee2f040e3c49118ae496ecad103ee3a8d091f375b387",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "577408db6b6b5d1e9dc6cd248b3b7905100e6f01d763b8ea3e79df8ae4413927",
       "recordCount": 357,
-      "vintage": "USDM AOI 2026-10-20"
+      "vintage": "USDM AOI 2026-10-24"
+    },
+    {
+      "url": "https://psl.noaa.gov/data/usclimdivs/",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "a4c97c2769b765490c5a3c8db7b9d8dccf864b46625ec1ab5923f89c654e516f",
+      "recordCount": 48,
+      "vintage": "NOAA climate division state codes"
+    },
+    {
+      "url": "https://usdmdataservices.unl.edu/api/ClimateDivisionStatistics/GetDSCI?aoi=4901&startdate=10/20/2026&enddate=10/20/2026",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "aa25f8f0ae7e67208baafb380f33566a093e55a9a16b2ecfe9abc0791d203511",
+      "recordCount": 1,
+      "vintage": "USDM climate state mapping 2026-10-20"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc2",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "71160beb1fff45ae7b34d8091e2c4d7567b59ad868e2d96b2a6071d9159441c8",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "95ccf81bb72482c95b38d34bf1db18f6d7ecc66066caebdeb1f0f018f274759b",
       "recordCount": 21,
-      "vintage": "USDM AOI 2026-10-20"
+      "vintage": "USDM AOI 2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc4",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "e63d3763460960001206fe2f09788c83b626c04846b0a0ab9cef7e4e4d51bce8",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "7aa07f91dc4663525a2c8df5bf37acaba3bf8bb062f2098e15b13971f7f80404",
       "recordCount": 219,
-      "vintage": "USDM AOI 2026-10-20"
+      "vintage": "USDM AOI 2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc6",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "adf868d306b20a833e48c11321336c63264119cf37440db65d3f108e7dc5282c",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "2d481cdf64ec7a93b716c49556b72502b0ea3d33cda79f7d64c7b10d6a856be1",
       "recordCount": 383,
-      "vintage": "USDM AOI 2026-10-20"
+      "vintage": "USDM AOI 2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc8",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "af694bca1925c24736b30445aa4a99a4cbcd28419adaeeb35b6061da1e5338c3",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "5303706278b0dbf70ff6a25792e531fc43472d3d21a80cc06767568194fa50d1",
       "recordCount": 2293,
-      "vintage": "USDM AOI 2026-10-20"
+      "vintage": "USDM AOI 2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/About/AbouttheData/DroughtClassification.aspx",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "a6b3d2c041f74d6a88160100e94dfdd78ed0347533d634e661c4b4fdf65eb8f1",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "e68f5fbcfea823134cac1f5e5c139cbfe3b6fa7be63278c8ea677d4cd91f7ea5",
       "recordCount": 1,
-      "vintage": "2026-10-20"
+      "vintage": "2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/About/AbouttheData/DSCI.aspx",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "4e59b5ca0740efeb2ff16639c6f932ae69ea4a3ac5952f81646380a628947e07",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "1b934d1a6d96e1afac7b8aba85e4002456d01e010833fbe6f19b42ab610f507e",
       "recordCount": 1,
-      "vintage": "2026-10-20"
+      "vintage": "2026-10-24"
     },
     {
       "url": "https://droughtmonitor.unl.edu/About/Permission.aspx",
-      "fetchedAt": "2026-10-20T01:33:44.041Z",
-      "sha256": "2e891dde2e4462cd4bdfafd4ddba1cab6659646824d1b3dfb3c358b0a916de06",
+      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "sha256": "55da3ecf67b3e4ddddee7a44981c723113463908b9c2a47ab51eb08304e2e9d8",
       "recordCount": 1,
-      "vintage": "2026-10-20"
+      "vintage": "2026-10-24"
     }
   ],
   "states": [
@@ -24634,1786 +24648,2143 @@
     {
       "id": "4913",
       "name": "Aleutians",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "3701",
       "name": "All",
+      "state": "RI",
       "sourceVintage": 4
     },
     {
       "id": "1808",
       "name": "Allegheny Plateau",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "1807",
       "name": "Appalachian Mountain",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "0102",
       "name": "Appalachian Mountain",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "0501",
       "name": "Arkansas Drainage Basin",
+      "state": "CO",
       "sourceVintage": 4
     },
     {
       "id": "4806",
       "name": "Belle Fourche Drainage",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "4804",
       "name": "Big Horn",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "3904",
       "name": "Black Hills",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "1503",
       "name": "Blue Grass",
+      "state": "KY",
       "sourceVintage": 4
     },
     {
       "id": "2306",
       "name": "Bootheel",
+      "state": "MO",
       "sourceVintage": 4
     },
     {
       "id": "4907",
       "name": "Bristol Bay",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "4505",
       "name": "Cascade Mountains West",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "4604",
       "name": "Central",
+      "state": "WV",
       "sourceVintage": 4
     },
     {
       "id": "4705",
       "name": "Central",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "2404",
       "name": "Central",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "2505",
       "name": "Central",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "3205",
       "name": "Central",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "3806",
       "name": "Central",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "3906",
       "name": "Central",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "3305",
       "name": "Central",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "3405",
       "name": "Central",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "1605",
       "name": "Central",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "1405",
       "name": "Central",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1502",
       "name": "Central",
+      "state": "KY",
       "sourceVintage": 4
     },
     {
       "id": "1205",
       "name": "Central",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1305",
       "name": "Central",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "2105",
       "name": "Central",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "2205",
       "name": "Central",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "1902",
       "name": "Central",
+      "state": "MA",
       "sourceVintage": 4
     },
     {
       "id": "0305",
       "name": "Central",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0602",
       "name": "Central",
+      "state": "CT",
       "sourceVintage": 4
     },
     {
       "id": "0905",
       "name": "Central",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "1104",
       "name": "Central",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "4508",
       "name": "Central Basin",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "0404",
       "name": "Central Coast Drng.",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "3107",
       "name": "Central Coastal Plain",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "1802",
       "name": "Central Eastern Shore",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "2906",
       "name": "Central Highlands",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "4903",
       "name": "Central Interior",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "3010",
       "name": "Central Lakes",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "2006",
       "name": "Central Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "4405",
       "name": "Central Mountain",
+      "state": "VA",
       "sourceVintage": 4
     },
     {
       "id": "1004",
       "name": "Central Mountains",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "3607",
       "name": "Central Mountains",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "4911",
       "name": "Central Panhandle",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "3104",
       "name": "Central Piedmont",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "1007",
       "name": "Central Plains",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "2905",
       "name": "Central Valley",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "3007",
       "name": "Champlain Valley",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "4807",
       "name": "Cheyenne & Niobrara Drainage",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "3004",
       "name": "Coastal",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "2803",
       "name": "Coastal",
+      "state": "NJ",
       "sourceVintage": 4
     },
     {
       "id": "2210",
       "name": "Coastal",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "0603",
       "name": "Coastal",
+      "state": "CT",
       "sourceVintage": 4
     },
     {
       "id": "1703",
       "name": "Coastal",
+      "state": "ME",
       "sourceVintage": 4
     },
     {
       "id": "1903",
       "name": "Coastal",
+      "state": "MA",
       "sourceVintage": 4
     },
     {
       "id": "3501",
       "name": "Coastal Area",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "0107",
       "name": "Coastal Plain",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "0502",
       "name": "Colorado Drainage Basin",
+      "state": "CO",
       "sourceVintage": 4
     },
     {
       "id": "4906",
       "name": "Cook Inlet",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "4002",
       "name": "Cumberland Plateau",
+      "state": "TN",
       "sourceVintage": 4
     },
     {
       "id": "4202",
       "name": "Dixie",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "4504",
       "name": "E Olympic Cascade Foothills",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "1105",
       "name": "East",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "0906",
       "name": "East Central",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "0306",
       "name": "East Central",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0204",
       "name": "East Central",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "2206",
       "name": "East Central",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "2106",
       "name": "East Central",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "1306",
       "name": "East Central",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "1206",
       "name": "East Central",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1406",
       "name": "East Central",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1606",
       "name": "East Central",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "3907",
       "name": "East Central",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "3406",
       "name": "East Central",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "3306",
       "name": "East Central",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "2506",
       "name": "East Central",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "3206",
       "name": "East Central",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "4706",
       "name": "East Central",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "2007",
       "name": "East Central Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "3602",
       "name": "East Central Mountains",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "2305",
       "name": "East Ozarks",
+      "state": "MO",
       "sourceVintage": 4
     },
     {
       "id": "4506",
       "name": "East Slope Cascades",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "1107",
       "name": "East Southeast",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "4104",
       "name": "East Texas",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "2002",
       "name": "East Upper",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "1504",
       "name": "Eastern",
+      "state": "KY",
       "sourceVintage": 4
     },
     {
       "id": "4001",
       "name": "Eastern",
+      "state": "TN",
       "sourceVintage": 4
     },
     {
       "id": "1010",
       "name": "Eastern Highlands",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "4402",
       "name": "Eastern Piedmont",
+      "state": "VA",
       "sourceVintage": 4
     },
     {
       "id": "3002",
       "name": "Eastern Plateau",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "0104",
       "name": "Eastern Valley",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "4106",
       "name": "Edwards Plateau",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "0805",
       "name": "Everglades",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "2604",
       "name": "Extreme Southern",
+      "state": "NV",
       "sourceVintage": 4
     },
     {
       "id": "3009",
       "name": "Great Lakes",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "4803",
       "name": "Green And Bear Drainage",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "0108",
       "name": "Gulf",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "4101",
       "name": "High Plains",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "3505",
       "name": "High Plateau",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "3005",
       "name": "Hudson Valley",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "0503",
       "name": "Kansas Drainage Basin",
+      "state": "CO",
       "sourceVintage": 4
     },
     {
       "id": "0807",
       "name": "Keys",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "4102",
       "name": "Low Rolling Plains",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "2204",
       "name": "Lower Delta",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "0806",
       "name": "Lower East Coast",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "4808",
       "name": "Lower Platte",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "1803",
       "name": "Lower Southern",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "3604",
       "name": "Lower Susquehanna",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "4110",
       "name": "Lower Valley",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "4003",
       "name": "Middle",
+      "state": "TN",
       "sourceVintage": 4
     },
     {
       "id": "3605",
       "name": "Middle Susquehanna",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "3006",
       "name": "Mohawk Valley",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "3801",
       "name": "Mountain",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "4502",
       "name": "NE Olympic San Juan",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "0802",
       "name": "North",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "0803",
       "name": "North Central",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "0902",
       "name": "North Central",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "0203",
       "name": "North Central",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "0302",
       "name": "North Central",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "2102",
       "name": "North Central",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "2202",
       "name": "North Central",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "1602",
       "name": "North Central",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "1402",
       "name": "North Central",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1202",
       "name": "North Central",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1302",
       "name": "North Central",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "3506",
       "name": "North Central",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "3402",
       "name": "North Central",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "3803",
       "name": "North Central",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "3902",
       "name": "North Central",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "4103",
       "name": "North Central",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "4203",
       "name": "North Central",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "3202",
       "name": "North Central",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "3302",
       "name": "North Central",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "2403",
       "name": "North Central",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "2502",
       "name": "North Central",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "4602",
       "name": "North Central",
+      "state": "WV",
       "sourceVintage": 4
     },
     {
       "id": "4702",
       "name": "North Central",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "1003",
       "name": "North Central Canyons",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "1002",
       "name": "North Central Prairies",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "0401",
       "name": "North Coast Drainage",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "4910",
       "name": "North Panhandle",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "4901",
       "name": "North Slope",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "4703",
       "name": "Northeast",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "0303",
       "name": "Northeast",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0202",
       "name": "Northeast",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "1102",
       "name": "Northeast",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "0903",
       "name": "Northeast",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "1303",
       "name": "Northeast",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "1203",
       "name": "Northeast",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1403",
       "name": "Northeast",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1603",
       "name": "Northeast",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "2203",
       "name": "Northeast",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "2103",
       "name": "Northeast",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "2503",
       "name": "Northeast",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "3303",
       "name": "Northeast",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "3203",
       "name": "Northeast",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "3903",
       "name": "Northeast",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "3804",
       "name": "Northeast",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "3403",
       "name": "Northeast",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "3508",
       "name": "Northeast",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "4909",
       "name": "Northeast Gulf",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "3307",
       "name": "Northeast Hills",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "0403",
       "name": "Northeast Inter. Basins",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "4904",
       "name": "Northeast Interior",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "2004",
       "name": "Northeast Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "2302",
       "name": "Northeast Prairie",
+      "state": "MO",
       "sourceVintage": 4
     },
     {
       "id": "2406",
       "name": "Northeastern",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "2602",
       "name": "Northeastern",
+      "state": "NV",
       "sourceVintage": 4
     },
     {
       "id": "4301",
       "name": "Northeastern",
+      "state": "VT",
       "sourceVintage": 4
     },
     {
       "id": "4606",
       "name": "Northeastern",
+      "state": "WV",
       "sourceVintage": 4
     },
     {
       "id": "4509",
       "name": "Northeastern",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "2903",
       "name": "Northeastern Plains",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "1805",
       "name": "Northeastern Shore",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "1008",
       "name": "Northeastern Valleys",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "0701",
       "name": "Northern",
+      "state": "DE",
       "sourceVintage": 4
     },
     {
       "id": "1701",
       "name": "Northern",
+      "state": "ME",
       "sourceVintage": 4
     },
     {
       "id": "2701",
       "name": "Northern",
+      "state": "NH",
       "sourceVintage": 4
     },
     {
       "id": "2801",
       "name": "Northern",
+      "state": "NJ",
       "sourceVintage": 4
     },
     {
       "id": "4404",
       "name": "Northern",
+      "state": "VA",
       "sourceVintage": 4
     },
     {
       "id": "3504",
       "name": "Northern Cascades",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "1806",
       "name": "Northern Central",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "3108",
       "name": "Northern Coastal Plain",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "3102",
       "name": "Northern Mountains",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "2902",
       "name": "Northern Mountains",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "4205",
       "name": "Northern Mountains",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "3103",
       "name": "Northern Piedmont",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "3003",
       "name": "Northern Plateau",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "0101",
       "name": "Northern Valley",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "0201",
       "name": "Northwest",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "0301",
       "name": "Northwest",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0601",
       "name": "Northwest",
+      "state": "CT",
       "sourceVintage": 4
     },
     {
       "id": "0901",
       "name": "Northwest",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "0801",
       "name": "Northwest",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "1101",
       "name": "Northwest",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "2003",
       "name": "Northwest",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "2101",
       "name": "Northwest",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "1601",
       "name": "Northwest",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "1401",
       "name": "Northwest",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1201",
       "name": "Northwest",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1301",
       "name": "Northwest",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "3201",
       "name": "Northwest",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "3901",
       "name": "Northwest",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "3802",
       "name": "Northwest",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "3301",
       "name": "Northwest",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "4701",
       "name": "Northwest",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "4908",
       "name": "Northwest Gulf",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "3610",
       "name": "Northwest Plateau",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "2301",
       "name": "Northwest Prairie",
+      "state": "MO",
       "sourceVintage": 4
     },
     {
       "id": "2601",
       "name": "Northwestern",
+      "state": "NV",
       "sourceVintage": 4
     },
     {
       "id": "4601",
       "name": "Northwestern",
+      "state": "WV",
       "sourceVintage": 4
     },
     {
       "id": "2901",
       "name": "Northwestern Plateau",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "4507",
       "name": "Okanogan Big Bend",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "4510",
       "name": "Palouse Blue Mountains",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "2501",
       "name": "Panhandle",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "3401",
       "name": "Panhandle",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "1001",
       "name": "Panhandle",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "0105",
       "name": "Piedmont Plateau",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "0504",
       "name": "Platte Drainage Basin",
+      "state": "CO",
       "sourceVintage": 4
     },
     {
       "id": "3601",
       "name": "Pocono Mountains",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "4805",
       "name": "Powder, Little Missouri, Tongu",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "0106",
       "name": "Prairie",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "4503",
       "name": "Puget Sound Lowlands",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "0505",
       "name": "Rio Grande Drainage Basin",
+      "state": "CO",
       "sourceVintage": 4
     },
     {
       "id": "0402",
       "name": "Sacramento Drng.",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "0405",
       "name": "San Joaquin Drng.",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "4802",
       "name": "Snake Drainage",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "4708",
       "name": "South Central",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "0308",
       "name": "South Central",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0206",
       "name": "South Central",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "0908",
       "name": "South Central",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "0804",
       "name": "South Central",
+      "state": "FL",
       "sourceVintage": 4
     },
     {
       "id": "1308",
       "name": "South Central",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "1208",
       "name": "South Central",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1408",
       "name": "South Central",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1608",
       "name": "South Central",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "2108",
       "name": "South Central",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "3507",
       "name": "South Central",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "3309",
       "name": "South Central",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "3408",
       "name": "South Central",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "3908",
       "name": "South Central",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "4204",
       "name": "South Central",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "4107",
       "name": "South Central",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "2508",
       "name": "South Central",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "2603",
       "name": "South Central",
+      "state": "NV",
       "sourceVintage": 4
     },
     {
       "id": "2208",
       "name": "South Central",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "2405",
       "name": "South Central",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "3208",
       "name": "South Central",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "2009",
       "name": "South Central Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "3608",
       "name": "South Central Mountains",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "0406",
       "name": "South Coast Drng.",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "4912",
       "name": "South Panhandle",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "4709",
       "name": "Southeast",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "0309",
       "name": "Southeast",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0207",
       "name": "Southeast",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "0909",
       "name": "Southeast",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "2109",
       "name": "Southeast",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "1609",
       "name": "Southeast",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "1409",
       "name": "Southeast",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1209",
       "name": "Southeast",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1109",
       "name": "Southeast",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "1309",
       "name": "Southeast",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "3509",
       "name": "Southeast",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "3409",
       "name": "Southeast",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "3310",
       "name": "Southeast",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "4207",
       "name": "Southeast",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "3909",
       "name": "Southeast",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "3209",
       "name": "Southeast",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "2209",
       "name": "Southeast",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "2509",
       "name": "Southeast",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "0407",
       "name": "Southeast Desert Basin",
+      "state": "CA",
       "sourceVintage": 4
     },
     {
       "id": "4905",
       "name": "Southeast Interior",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "2010",
       "name": "Southeast Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "2407",
       "name": "Southeastern",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "4303",
       "name": "Southeastern",
+      "state": "VT",
       "sourceVintage": 4
     },
     {
       "id": "3603",
       "name": "Southeastern Piedmont",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "2907",
       "name": "Southeastern Plains",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "1801",
       "name": "Southeastern Shore",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "0702",
       "name": "Southern",
+      "state": "DE",
       "sourceVintage": 4
     },
     {
       "id": "2702",
       "name": "Southern",
+      "state": "NH",
       "sourceVintage": 4
     },
     {
       "id": "2802",
       "name": "Southern",
+      "state": "NJ",
       "sourceVintage": 4
     },
     {
       "id": "3807",
       "name": "Southern",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "4109",
       "name": "Southern",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "4605",
       "name": "Southern",
+      "state": "WV",
       "sourceVintage": 4
     },
     {
       "id": "3106",
       "name": "Southern Coastal Plain",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "2908",
       "name": "Southern Desert",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "1702",
       "name": "Southern Interior",
+      "state": "ME",
       "sourceVintage": 4
     },
     {
       "id": "3101",
       "name": "Southern Mountains",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "3105",
       "name": "Southern Piedmont",
+      "state": "NC",
       "sourceVintage": 4
     },
     {
       "id": "3207",
       "name": "Southwest",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "2507",
       "name": "Southwest",
+      "state": "NE",
       "sourceVintage": 4
     },
     {
       "id": "3905",
       "name": "Southwest",
+      "state": "SD",
       "sourceVintage": 4
     },
     {
       "id": "3308",
       "name": "Southwest",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "3407",
       "name": "Southwest",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "2107",
       "name": "Southwest",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "2207",
       "name": "Southwest",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "1307",
       "name": "Southwest",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "1207",
       "name": "Southwest",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1407",
       "name": "Southwest",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "1607",
       "name": "Southwest",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "0907",
       "name": "Southwest",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "1108",
       "name": "Southwest",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "0307",
       "name": "Southwest",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "0205",
       "name": "Southwest",
+      "state": "AZ",
       "sourceVintage": 4
     },
     {
       "id": "4707",
       "name": "Southwest",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "2008",
       "name": "Southwest Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "3609",
       "name": "Southwest Plateau",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "2402",
       "name": "Southwestern",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "4603",
       "name": "Southwestern",
+      "state": "WV",
       "sourceVintage": 4
     },
     {
       "id": "1006",
       "name": "Southwestern Highlands",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "4406",
       "name": "Southwestern Mountain",
+      "state": "VA",
       "sourceVintage": 4
     },
     {
       "id": "2904",
       "name": "Southwestern Mountains",
+      "state": "NM",
       "sourceVintage": 4
     },
     {
       "id": "3503",
       "name": "Southwestern Valleys",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "1005",
       "name": "Southwestern Valleys",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "3008",
       "name": "St. Lawrence Valley",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "4401",
       "name": "Tidewater",
+      "state": "VA",
       "sourceVintage": 4
     },
     {
       "id": "4105",
       "name": "Trans Pecos",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "4206",
       "name": "Uinta Basin",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "4108",
       "name": "Upper Coast",
+      "state": "TX",
       "sourceVintage": 4
     },
     {
       "id": "2201",
       "name": "Upper Delta",
+      "state": "MS",
       "sourceVintage": 4
     },
     {
       "id": "0103",
       "name": "Upper Plains",
+      "state": "AL",
       "sourceVintage": 4
     },
     {
       "id": "4810",
       "name": "Upper Platte",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "1009",
       "name": "Upper Snake River Plains",
+      "state": "ID",
       "sourceVintage": 4
     },
     {
       "id": "1804",
       "name": "Upper Southern",
+      "state": "MD",
       "sourceVintage": 4
     },
     {
       "id": "3606",
       "name": "Upper Susquehanna",
+      "state": "PA",
       "sourceVintage": 4
     },
     {
       "id": "1103",
       "name": "West",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "0904",
       "name": "West Central",
+      "state": "GA",
       "sourceVintage": 4
     },
     {
       "id": "0304",
       "name": "West Central",
+      "state": "AR",
       "sourceVintage": 4
     },
     {
       "id": "2104",
       "name": "West Central",
+      "state": "MN",
       "sourceVintage": 4
     },
     {
       "id": "1204",
       "name": "West Central",
+      "state": "IN",
       "sourceVintage": 4
     },
     {
       "id": "1304",
       "name": "West Central",
+      "state": "IA",
       "sourceVintage": 4
     },
     {
       "id": "1604",
       "name": "West Central",
+      "state": "LA",
       "sourceVintage": 4
     },
     {
       "id": "1404",
       "name": "West Central",
+      "state": "KS",
       "sourceVintage": 4
     },
     {
       "id": "3404",
       "name": "West Central",
+      "state": "OK",
       "sourceVintage": 4
     },
     {
       "id": "3805",
       "name": "West Central",
+      "state": "SC",
       "sourceVintage": 4
     },
     {
       "id": "3204",
       "name": "West Central",
+      "state": "ND",
       "sourceVintage": 4
     },
     {
       "id": "3304",
       "name": "West Central",
+      "state": "OH",
       "sourceVintage": 4
     },
     {
       "id": "4704",
       "name": "West Central",
+      "state": "WI",
       "sourceVintage": 4
     },
     {
       "id": "2005",
       "name": "West Central Lower",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "2303",
       "name": "West Central Plains",
+      "state": "MO",
       "sourceVintage": 4
     },
     {
       "id": "4902",
       "name": "West Coast",
+      "state": "AK",
       "sourceVintage": 4
     },
     {
       "id": "4501",
       "name": "West Olympic Coast",
+      "state": "WA",
       "sourceVintage": 4
     },
     {
       "id": "2304",
       "name": "West Ozarks",
+      "state": "MO",
       "sourceVintage": 4
     },
     {
       "id": "1106",
       "name": "West Southwest",
+      "state": "IL",
       "sourceVintage": 4
     },
     {
       "id": "2001",
       "name": "West Upper",
+      "state": "MI",
       "sourceVintage": 4
     },
     {
       "id": "1901",
       "name": "Western",
+      "state": "MA",
       "sourceVintage": 4
     },
     {
       "id": "1501",
       "name": "Western",
+      "state": "KY",
       "sourceVintage": 4
     },
     {
       "id": "2401",
       "name": "Western",
+      "state": "MT",
       "sourceVintage": 4
     },
     {
       "id": "4004",
       "name": "Western",
+      "state": "TN",
       "sourceVintage": 4
     },
     {
       "id": "4201",
       "name": "Western",
+      "state": "UT",
       "sourceVintage": 4
     },
     {
       "id": "4302",
       "name": "Western",
+      "state": "VT",
       "sourceVintage": 4
     },
     {
       "id": "4403",
       "name": "Western Piedmont",
+      "state": "VA",
       "sourceVintage": 4
     },
     {
       "id": "3001",
       "name": "Western Plateau",
+      "state": "NY",
       "sourceVintage": 4
     },
     {
       "id": "3502",
       "name": "Willamette Valley",
+      "state": "OR",
       "sourceVintage": 4
     },
     {
       "id": "4809",
       "name": "Wind River",
+      "state": "WY",
       "sourceVintage": 4
     },
     {
       "id": "4801",
       "name": "Yellowstone Drainage",
+      "state": "WY",
       "sourceVintage": 4
     }
   ],
@@ -43917,9 +44288,9 @@
   ],
   "vintages": [
     "Census state codes",
-    "Census 2020; USDM 2026-10-13",
+    "Census 2020; USDM 2026-10-20",
     "Census 2020",
-    "USDM 2026-10-13",
-    "USDM AOI 2026-10-20"
+    "USDM 2026-10-20",
+    "USDM AOI 2026-10-24"
   ]
 }

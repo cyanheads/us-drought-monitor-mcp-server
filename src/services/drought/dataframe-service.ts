@@ -20,6 +20,7 @@ import { getCanvas } from '../canvas-accessor.js';
 import type { StageProducer, StageRequest } from './drought-service.js';
 import { renderFields } from './format.js';
 import { boundedMetadata, type MetadataField } from './metadata-pages.js';
+import { queryExpression } from './query-expression.js';
 import { renderWorkflow } from './workflow-format.js';
 import type { StageHandle } from './workflow-schema.js';
 
@@ -140,12 +141,8 @@ function engine() {
   if (!canvas) throw configurationError(CANVAS_RECOVERY, { reason: 'canvas_unavailable' });
   return canvas;
 }
-function fits(value: unknown): boolean {
-  return (
-    JSON.stringify(value).length <= 80_000 &&
-    renderFields(value).length <= 80_000 &&
-    renderWorkflow(value).length <= 80_000
-  );
+function fits(value: unknown, render: (value: unknown) => string = renderWorkflow): boolean {
+  return JSON.stringify(value).length <= 80_000 && render(value).length <= 80_000;
 }
 function identifier(value: string): void {
   if (!CANVAS_IDENTIFIER_REGEX.test(value))
@@ -596,7 +593,7 @@ export class DataframeService {
         };
         result.metadata_page = page;
         const pageFits = () =>
-          fits(result) &&
+          fits(result, renderFields) &&
           JSON.stringify({ tables: result.tables, metadata_page: page }).length <= 40_000;
         while (items.length) {
           page.next_offset = offset + items.length < full.length ? offset + items.length : null;
@@ -607,18 +604,18 @@ export class DataframeService {
         page.next_offset = offset + items.length < full.length ? offset + items.length : null;
         if (!pageFits()) large('metadata_page');
       } else if (
-        !fits(result) ||
+        !fits(result, renderFields) ||
         JSON.stringify(result.tables.map((table) => table.metadata)).length > 40_000
       ) {
         for (const table of result.tables) {
           const full = table.metadata;
           table.metadata = boundedMetadata(full, (value) => {
             table.metadata = value;
-            return fits(result) && JSON.stringify(value).length <= 40_000;
+            return fits(result, renderFields) && JSON.stringify(value).length <= 40_000;
           });
         }
       }
-      if (!fits(result)) large('table_metadata');
+      if (!fits(result, renderFields)) large('table_metadata');
       this.touch(ctx.tenantId, instance.canvasId);
       return result;
     } catch (error) {
@@ -639,8 +636,9 @@ export class DataframeService {
     const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(5_000)]);
     try {
       const instance = await engine().acquire(input.canvas_id, ctx, { signal });
+      // Original text gates run before the provider parses and checks the wrapped read plan.
       const result = await instance.query(
-        `SELECT * FROM (${input.sql}) AS drought_result LIMIT ${input.limit + 1} OFFSET ${input.offset}`,
+        `SELECT * FROM (${queryExpression(input.sql)}\n) AS drought_result LIMIT ${input.limit + 1} OFFSET ${input.offset}`,
         { rowLimit: input.limit + 1, denySystemCatalogs: true, signal },
       );
       const tables = await instance.describe();
@@ -675,8 +673,8 @@ export class DataframeService {
           'Re-stage the needed dataset in a new canvas, then query that canvas.',
           { reason: 'dataset_too_large', component: 'query_metadata' },
         );
-      while (rows.length && !fits(output())) rows.pop();
-      if ((result.rows.length && !rows.length) || !fits(output()))
+      while (rows.length && !fits(output(), renderFields)) rows.pop();
+      if ((result.rows.length && !rows.length) || !fits(output(), renderFields))
         throw validationError(
           'Project smaller values with drought_dataframe_query after inspecting columns with drought_dataframe_describe.',
           { reason: 'query_row_too_large' },

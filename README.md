@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/us-drought-monitor-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/us-drought-monitor-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/us-drought-monitor-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.3-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/us-drought-monitor-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/us-drought-monitor-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/us-drought-monitor-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -16,6 +16,12 @@
 [![Install in Claude Desktop](https://img.shields.io/badge/Install_in-Claude_Desktop-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/cyanheads/us-drought-monitor-mcp-server/releases/latest/download/us-drought-monitor-mcp-server.mcpb) [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=us-drought-monitor-mcp-server&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBjeWFuaGVhZHMvdXMtZHJvdWdodC1tb25pdG9yLW1jcC1zZXJ2ZXIiXX0=) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22us-drought-monitor-mcp-server%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40cyanheads%2Fus-drought-monitor-mcp-server%22%5D%7D)
 
 [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-67E8F9?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core)
+
+</div>
+
+<div align="center">
+
+**Public Hosted Server:** [https://us-drought-monitor.caseyjhand.com/mcp](https://us-drought-monitor.caseyjhand.com/mcp)
 
 </div>
 
@@ -42,15 +48,15 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 
 ### `drought_list_reference` <sub>tool</sub>
 
-- `topic`: `categories`, `dsci`, `area_types`, `coverage`, `states`, `counties`, `tribal`, `climate_divisions` or `huc`; `nameContains` token filter, `state` for counties only, `hucLevel` (2, 4, 6 or 8) required for `huc`
+- `topic`: `categories`, `dsci`, `area_types`, `coverage`, `states`, `counties`, `tribal`, `climate_divisions` or `huc`; `nameContains` token filter, `state` for counties or climate divisions, `hucLevel` (2, 4, 6 or 8) required for `huc`. Optional `parentHuc` selects descendants of an existing shorter HUC at level 2, 4 or 6
 - Up to 200 records per page (default 50), continued via `nextCursor` with unchanged filters; `totalCount` counts every match
-- Records keep leading-zero identifiers and source vintages; `bundleVersion` and `sourceMetadata` (source URLs and SHA-256 hashes) date the offline bundle
+- Records keep leading-zero identifiers, climate-state postal codes and source vintages; `bundleVersion` and topic-dependent `sourceMetadata` (source URLs and SHA-256 hashes) date the offline bundle. `provenance.sourceUrls` uses the same source selection
 
 ---
 
 ### `drought_get_current_severity` <sub>tool</sub>
 
-- One `area` (`areaType` + `aoi`, plus `hucLevel` for HUC; `aoi` takes an exact identifier or exact state or `"County Name, ST"` name); optional `date`, default the latest published map; `us` selects both CONUS and Total
+- One `area` (`areaType` + `aoi`, plus `hucLevel` for HUC; `aoi` takes an exact identifier or exact state or `"County Name, ST"` name); unique suffix-free county names such as `"King, WA"` are accepted after exact-name matching. Optional `date` defaults to the latest published map; `us` selects both CONUS and Total
 - Each snapshot carries cumulative and categorical area percent, cumulative square miles, cumulative population (`populationStatus` `unsupported` outside US/state/county), `dsci`, and `dsciChange4Weeks` / `dsciChange52Weeks` against exactly 28 and 364 days earlier, each with an `available` / `missing` / `before_coverage` status
 - A date outside published coverage returns `found: false` with `guidance`
 
@@ -68,7 +74,7 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 
 - `scope` `states` or `counties` (optional `state`, else nationwide); `metric` `dsci` (default), `d2_d4` or `d3_d4`; optional `date` (default latest) and `baselineDate` to rank the change; `direction` `desc` (default) or `asc`
 - Competition ranks share ties; `excludedAreas` names each area missing its target or baseline value; `changeUnit` is `index` or `percentage_points`
-- `limit` (1–200, default 20) sizes the inline preview; the complete ranking stages, with optional `canvas_id` reuse
+- `limit` (default 20, clamped to 200) sizes the inline preview; the complete ranking stages, with optional `canvas_id` reuse
 
 ---
 
@@ -91,8 +97,8 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 
 ### `drought_dataframe_query` <sub>tool</sub>
 
-- `canvas_id` plus one SELECT, CTE or FROM-first expression without a terminal semicolon; writes, external reads and system catalogs are refused
-- `limit` 1–500 (default 100) and `offset` up to 250,000; continue `next_offset` with identical SQL until null. `SELECT * FROM <table_name> ORDER BY row_id` returns the original rows in order
+- `canvas_id` plus one DuckDB read expression with an optional terminal semicolon; writes, multiple statements, external reads and system catalogs are refused
+- `limit` (default 100, clamped to 500) and `offset` up to 250,000; continue `next_offset` with identical SQL until null. `SELECT * FROM <table_name> ORDER BY row_id` returns the original rows in order
 - `countIsExact` is true only when one page from offset 0 holds every row; use `SELECT COUNT(*)` for totals
 
 ---
@@ -119,11 +125,31 @@ USDM-specific:
 
 Agent-friendly output:
 
+- Reference records, query rows and describe columns use compact tables with JSON cells; empty cells distinguish absent optional fields from null values. Metadata, nested values and clickable URLs remain complete on both response surfaces
+- Positive integer page/preview limits above 200 (references, comparisons, duration) or 500 (SQL) are clamped; `effectiveLimit` and `limitNotice` disclose the result. Continuation retains every record. Nonpositive and fractional limits are rejected
+- Date inputs advertise `YYYY-MM-DD` and validate real calendar dates; blank optional snapshot and comparison dates retain their defaults. A duration threshold beyond its window advises lowering `minWeeks` or widening the dates
 - Provenance on every response: `sourceUrls`, `retrievedAt`, the USDM `credit` line and the experimental-DSCI citation
 - Missing data stays explicit: nulls with `dsciStatus` / `populationStatus`, `missingAreas`, `missingObservations` date runs and `excludedAreas`, never zero-filled
 - Range and identity echo: `requestedRange` / `effectiveRange`, `latestMapDate`, `resolvedAreas`, and staging handles that name `drought_dataframe_describe` and `drought_dataframe_query`
 
 ## Getting started
+
+### Public Hosted Instance
+
+A public instance is available at `https://us-drought-monitor.caseyjhand.com/mcp` — no installation required. Point any MCP client at it via Streamable HTTP:
+
+```json
+{
+  "mcpServers": {
+    "us-drought-monitor-mcp-server": {
+      "type": "streamable-http",
+      "url": "https://us-drought-monitor.caseyjhand.com/mcp"
+    }
+  }
+}
+```
+
+### Self-Hosted / Local
 
 Add the following to your MCP client configuration file.
 

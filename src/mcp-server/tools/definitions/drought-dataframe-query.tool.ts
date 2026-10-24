@@ -12,7 +12,7 @@ import { renderFields } from '../../../services/drought/format.js';
 export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
   title: 'Query staged drought data',
   description:
-    'Run one SELECT, CTE or FROM-first read expression against staged drought tables, without a terminal semicolon. Get canvas_id from drought_get_timeseries or drought_compare_areas and inspect columns with drought_dataframe_describe. For every original row, SELECT * FROM the table ORDER BY row_id and follow next_offset until null. Arbitrary SQL pagination requires your own stable ORDER BY. Exact totals require SELECT COUNT(*).',
+    'Run one DuckDB read expression against staged drought tables, optionally ending with one semicolon. Get canvas_id from drought_get_timeseries or drought_compare_areas and inspect columns with drought_dataframe_describe. For every original row, SELECT * FROM the table ORDER BY row_id and follow next_offset until null. Arbitrary SQL pagination requires your own stable ORDER BY. Exact totals require SELECT COUNT(*).',
   annotations: { readOnlyHint: true, openWorldHint: false },
   input: z.object({
     canvas_id: CanvasIdSchema.describe('Token returned by a drought producer.'),
@@ -20,14 +20,17 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
       .string()
       .min(1)
       .max(16_384)
-      .describe('One read expression without a terminal semicolon; staged tables only.'),
+      .describe(
+        'One DuckDB read expression with an optional terminal semicolon; staged tables only.',
+      ),
     limit: z
       .number()
       .int()
       .min(1)
-      .max(500)
       .default(100)
-      .describe('Maximum returned rows, further bounded by complete response size.'),
+      .describe(
+        'Maximum returned rows, clamped to 500 with disclosure and further bounded by complete response size.',
+      ),
     offset: z
       .number()
       .int()
@@ -67,6 +70,12 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
       .describe('Bounded table identity and source provenance.'),
   }),
   enrichment: {
+    effectiveLimit: z
+      .number()
+      .int()
+      .optional()
+      .describe('Effective page ceiling after clamping to 500.'),
+    limitNotice: z.string().optional().describe('Disclosure when the requested limit was clamped.'),
     notice: z.string().optional().describe('Empty-result or continuation guidance.'),
     truncated: z.boolean().optional().describe('More query rows remain beyond this page.'),
     shown: z.number().int().optional().describe('Complete rows shown on the truncated page.'),
@@ -147,11 +156,20 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
     },
   ],
   async handler(input, ctx) {
-    const result = await dataframeService.query(input, ctx);
+    const limit = Math.min(input.limit, 500);
+    ctx.enrich({
+      effectiveLimit: limit,
+      ...(input.limit > limit
+        ? {
+            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}; follow next_offset for every remaining row.`,
+          }
+        : {}),
+    });
+    const result = await dataframeService.query({ ...input, limit }, ctx);
     if (result.has_more)
       ctx.enrich.truncated({
         shown: result.returnedCount,
-        cap: input.limit,
+        cap: limit,
         guidance: 'Continue with next_offset and identical SQL to retrieve the remaining rows.',
       });
     if (!result.returnedCount)

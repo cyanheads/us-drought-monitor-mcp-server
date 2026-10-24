@@ -2,19 +2,7 @@
  * @fileoverview Lossless ordinary response sections and complete compact row tables.
  * @module services/drought/workflow-format
  */
-import { renderFields } from './format.js';
-
-/** JSON escapes control characters; GFM consumes the one extra pipe escape. */
-function cell(value: unknown): string {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) throw new TypeError('Table values must be JSON-serializable.');
-  const longest = Math.max(0, ...[...encoded.matchAll(/`+/g)].map((match) => match[0].length));
-  const delimiter = '`'.repeat(longest + 1);
-  const code = `${delimiter} ${encoded.replaceAll('|', '\\|')} ${delimiter}`;
-  return typeof value === 'string' && /^https:\/\/[^\s<>]+$/.test(value)
-    ? `[${code}](<${value.replaceAll('|', '\\|')}>)`
-    : code;
-}
+import { tableCell as cell, renderFields } from './format.js';
 
 function columnUnit(
   column: string,

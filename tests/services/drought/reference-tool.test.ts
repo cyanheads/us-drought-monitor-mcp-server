@@ -6,9 +6,73 @@ import { execFileSync } from 'node:child_process';
 import { runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { describe, expect, it } from 'vitest';
 import { droughtListReferenceTool } from '@/mcp-server/tools/definitions/drought-list-reference.tool.js';
-import { listReference } from '@/services/drought/reference-data.js';
+import { listReference, referenceBundle } from '@/services/drought/reference-data.js';
 
 describe('drought_list_reference public contract', () => {
+  it('clamps over-ceiling pages with dual-surface disclosure and complete continuation', async () => {
+    const result = await runToolContract(droughtListReferenceTool, {
+      topic: 'counties',
+      state: 'TX',
+      limit: 201,
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      effectiveLimit: 200,
+      limitNotice: expect.stringContaining('200'),
+      hasMore: true,
+      nextCursor: expect.any(String),
+    });
+    expect(
+      result.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n'),
+    ).toContain('limitNotice');
+    const first = droughtListReferenceTool.output.parse(result.structuredContent);
+    if (!first.nextCursor) throw new Error('Expected Texas county continuation');
+    const next = await runToolContract(droughtListReferenceTool, {
+      topic: 'counties',
+      state: 'TX',
+      limit: 201,
+      cursor: first.nextCursor,
+    });
+    const last = droughtListReferenceTool.output.parse(next.structuredContent);
+    const identities = [...first.records, ...last.records].map((row) => row.id);
+    expect(identities).toEqual(
+      referenceBundle.counties.filter((row) => row.state === 'TX').map((row) => row.id),
+    );
+    expect(new Set(identities).size).toBe(254);
+    expect(last.nextCursor).toBeNull();
+  });
+  it('exposes filtered climate and parent HUC pages on both surfaces', async () => {
+    for (const [input, ids] of [
+      [
+        { topic: 'climate_divisions', state: 'WA' },
+        ['4501', '4502', '4503', '4504', '4505', '4506', '4507', '4508', '4509', '4510'],
+      ],
+      [{ topic: 'huc', hucLevel: 8, parentHuc: '1703' }, ['17030001', '17030002', '17030003']],
+    ] as const) {
+      const result = await runToolContract(droughtListReferenceTool, input);
+      expect(result.isError).not.toBe(true);
+      const parsed = droughtListReferenceTool.output.parse(result.structuredContent);
+      expect(parsed.records.map((row) => row.id).sort()).toEqual(ids);
+      expect(parsed).toMatchObject({ totalCount: ids.length, hasMore: false, nextCursor: null });
+      const rendered = result.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n');
+      const html = execFileSync(
+        'bun',
+        ['-e', 'console.log(Bun.markdown.html(await Bun.stdin.text()))'],
+        { input: rendered, encoding: 'utf8' },
+      );
+      const table = /<tbody>([\s\S]*?)<\/tbody>/.exec(html)?.[1] ?? '';
+      const renderedIds = [...table.matchAll(/<td><code>&quot;(\d+)&quot;<\/code><\/td>/g)].map(
+        (match) => match[1],
+      );
+      expect(renderedIds.sort()).toEqual(ids);
+    }
+  });
   it.each([
     { topic: 'states', nameContains: 'zzzz-no-match', limit: 200 },
     { topic: 'states', nameContains: 'Alabama', limit: 200 },
@@ -69,9 +133,9 @@ describe('drought_list_reference public contract', () => {
           (_, entity: string) =>
             ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[entity] ?? '',
         );
-    const scalarValues = [...html.matchAll(/<pre><code[^>]*>([\s\S]*?)<\/code><\/pre>/g)].map(
-      (match) => JSON.parse(decode(match[1] ?? '')),
-    );
+    const scalarValues = [
+      ...html.replace(/<th[\s\S]*?<\/th>/g, '').matchAll(/<code[^>]*>([\s\S]*?)<\/code>/g),
+    ].map((match) => JSON.parse(decode(match[1] ?? '')));
     expect(scalarValues).toContain(name);
     expect(scalarValues).toContain(description);
     expect(html).toContain(`href="${url.replaceAll('&', '&amp;')}"`);
@@ -82,6 +146,7 @@ describe('drought_list_reference public contract', () => {
       nameContains: '',
       state: '',
       cursor: '',
+      parentHuc: '',
     });
     const omitted = await runToolContract(droughtListReferenceTool, { topic: 'states' });
     expect(blank.isError).not.toBe(true);

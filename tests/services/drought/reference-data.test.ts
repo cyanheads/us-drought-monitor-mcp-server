@@ -11,6 +11,115 @@ import {
 } from '@/services/drought/reference-data.js';
 
 describe('official references', () => {
+  it('filters generated climate divisions by every state alias including USDM Alaska', () => {
+    expect(referenceBundle.climateDivisions.every((row) => typeof row.state === 'string')).toBe(
+      true,
+    );
+    const states =
+      'AL AZ AR CA CO CT DE FL GA ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY AK'.split(
+        ' ',
+      );
+    for (const division of referenceBundle.climateDivisions)
+      expect(division.state).toBe(states[Number(division.id.slice(0, 2)) - 1]);
+    expect(new Set(referenceBundle.climateDivisions.map((row) => row.id.slice(0, 2))).size).toBe(
+      49,
+    );
+    for (const state of ['WA', '53', 'Washington']) {
+      const page = listReference({ topic: 'climate_divisions', state });
+      expect(page.records.map((row) => row.id).sort()).toEqual([
+        '4501',
+        '4502',
+        '4503',
+        '4504',
+        '4505',
+        '4506',
+        '4507',
+        '4508',
+        '4509',
+        '4510',
+      ]);
+    }
+    const alaska = listReference({ topic: 'climate_divisions', state: 'AK' }).records;
+    expect(alaska).toHaveLength(13);
+    expect(alaska.every((row) => row.id.startsWith('49'))).toBe(true);
+  });
+  it('pages descendants at multiple HUC depths and binds normalized parent filters', () => {
+    for (const [parentHuc, hucLevel] of [
+      ['17', 4],
+      ['1703', 6],
+      ['1703', 8],
+    ] as const) {
+      const ids: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = listReference({
+          topic: 'huc',
+          parentHuc,
+          hucLevel,
+          limit: 1,
+          ...(cursor ? { cursor } : {}),
+        });
+        ids.push(...page.records.map((row) => row.id));
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      expect(ids).toEqual(
+        referenceBundle.huc
+          .filter((row) => row.hucLevel === hucLevel && row.id.startsWith(parentHuc))
+          .map((row) => row.id),
+      );
+    }
+    expect(
+      listReference({ topic: 'huc', parentHuc: '1703', hucLevel: 8 }).records.map((row) => row.id),
+    ).toEqual(['17030001', '17030002', '17030003']);
+    for (const parentHuc of ['17030001', '170300', '9999', '17x'])
+      expect(() => listReference({ topic: 'huc', parentHuc, hucLevel: 6 })).toThrow();
+    expect(() => listReference({ topic: 'states', parentHuc: '17' })).toThrow();
+    const first = listReference({ topic: 'huc', parentHuc: '17', hucLevel: 8, limit: 1 });
+    expect(() =>
+      listReference({
+        topic: 'huc',
+        parentHuc: '1703',
+        hucLevel: 8,
+        cursor: first.nextCursor ?? '',
+      }),
+    ).toThrow();
+  });
+  it('selects the same source dependencies for metadata and provenance', () => {
+    const page = listReference({ topic: 'counties', state: 'CT' });
+    expect(page.sourceMetadata.map((source) => source.url)).toEqual(page.provenance.sourceUrls);
+    expect(page.sourceMetadata.some((source) => source.url.includes('national_county2020'))).toBe(
+      true,
+    );
+    expect(page.sourceMetadata.some((source) => source.url.includes('CountyStatistics'))).toBe(
+      true,
+    );
+    expect(page.sourceMetadata.some((source) => source.url.includes('state.txt'))).toBe(true);
+    expect(page.sourceMetadata.some((source) => source.url.includes('huc'))).toBe(false);
+  });
+  it('resolves unique suffix-free counties after exact identities', () => {
+    expect(resolveGeography({ areaType: 'county', aoi: 'King, WA' }).areas[0]?.id).toBe('53033');
+    expect(resolveGeography({ areaType: 'county', aoi: 'King, WA' }).areas[0]?.name).toBe(
+      'King County',
+    );
+    const fixture = {
+      areaType: 'county' as const,
+      id: '53999',
+      name: 'King Parish',
+      state: 'WA',
+      sourceVintage: 'Alias ambiguity fixture',
+    };
+    referenceBundle.counties.push(fixture);
+    try {
+      expect(resolveGeography({ areaType: 'county', aoi: 'King County, WA' }).areas[0]?.id).toBe(
+        '53033',
+      );
+      expect(() => resolveGeography({ areaType: 'county', aoi: 'King, WA' })).toThrow(
+        expect.objectContaining({ data: expect.objectContaining({ reason: 'ambiguous_area' }) }),
+      );
+    } finally {
+      referenceBundle.counties.splice(referenceBundle.counties.indexOf(fixture), 1);
+    }
+  });
   it('resolves state aliases and scoped counties while retaining zeroes', () => {
     for (const aoi of ['AL', 'al', '01', ' Alabama ']) expect(resolveState(aoi).id).toBe('01');
     expect(

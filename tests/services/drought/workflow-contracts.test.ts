@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderScalar } from '@/services/drought/format.js';
+import { renderFields, renderScalar } from '@/services/drought/format.js';
 import { renderWorkflow } from '@/services/drought/workflow-format.js';
 
 const latest = '2024-03-05';
@@ -77,8 +77,16 @@ function tableRows(html: string): Record<string, unknown>[] {
       const name = columns[index];
       if (typeof name !== 'string') throw new Error('Expected exact string column name');
       record[name] = scalar(cell);
-      const href = /<a href="([^"]*)"/.exec(cell)?.[1];
-      if (href !== undefined) expect(decodeHtml(href)).toBe(record[name]);
+      const urls = (value: unknown): string[] =>
+        typeof value === 'string' && /^https:\/\/[^\s<>]+$/.test(value)
+          ? [value]
+          : value !== null && typeof value === 'object'
+            ? Object.values(value).flatMap(urls)
+            : [];
+      const targets = [...cell.matchAll(/<a href="([^"]*)"/g)].map((match) =>
+        decodeURI(decodeHtml(match[1] ?? '')),
+      );
+      expect(targets).toEqual(urls(record[name]).map((url) => decodeURI(url)));
     }
     return record;
   });
@@ -121,6 +129,68 @@ afterEach(() => {
 });
 
 describe('drought public consumption paths', () => {
+  it('advertises date syntax while retaining blank optional dates and rejecting impossible calendars', async () => {
+    const definitions = await tools();
+    expect(definitions.current.input.safeParse({ area, date: '' }).success).toBe(true);
+    expect(
+      definitions.compare.input.safeParse({ scope: 'states', date: '', baselineDate: '' }).success,
+    ).toBe(true);
+    for (const date of ['10/13/2026', '2026-1-01', '2026-01-010']) {
+      const result = await runToolContract(definitions.current, { area, date });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        error: { code: JsonRpcErrorCode.InvalidParams },
+      });
+      expect(text(result)).toContain('date');
+    }
+    const impossible = await runToolContract(definitions.current, { area, date: '2024-02-30' });
+    expect(impossible.structuredContent).toMatchObject({
+      error: { data: { reason: 'invalid_date_range' } },
+    });
+  });
+  it('explains duration thresholds beyond the window on both surfaces before acquisition', async () => {
+    const definitions = await tools();
+    const result = await runToolContract(definitions.weeks, {
+      ...range,
+      states: ['AL'],
+      minCategory: 'D1',
+      minWeeks: 2,
+    });
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        data: {
+          reason: 'invalid_date_range',
+          recovery: { hint: expect.stringContaining('lower minWeeks') },
+        },
+      },
+    });
+    expect(text(result)).toContain('lower minWeeks');
+    expect(text(result)).toContain('widen');
+    expect(definitions.fetcher).not.toHaveBeenCalled();
+  });
+  it('clamps comparison and duration previews with both-surface disclosure', async () => {
+    const definitions = await tools();
+    const comparison = await runToolContract(definitions.compare, {
+      scope: 'states',
+      date: latest,
+      limit: 201,
+    });
+    const duration = await runToolContract(definitions.weeks, {
+      ...range,
+      states: ['AL'],
+      minCategory: 'D1',
+      minWeeks: 1,
+      limit: 201,
+    });
+    for (const result of [comparison, duration]) {
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        effectiveLimit: 200,
+        limitNotice: expect.stringContaining('200'),
+      });
+      expect(text(result)).toContain('limitNotice');
+    }
+  });
   it.each(['09001', 'Fairfield County, CT'])(
     'preserves empty success and planning-region guidance for %s on every observation workflow',
     async (aoi) => {
@@ -365,7 +435,7 @@ describe('drought public consumption paths', () => {
       });
       expect(text(result)).toContain('areas');
     }
-    for (const limit of [0, 201]) {
+    for (const limit of [0, -1, 1.5]) {
       const result = await runToolContract(definitions.weeks, {
         ...range,
         minCategory: 'D2',
@@ -419,6 +489,39 @@ describe('drought public consumption paths', () => {
 });
 
 describe('exact Markdown value recovery', () => {
+  it.each([
+    'https://example.org/a\\?x=1',
+    'https://example.org/a\\|[b]?x=`tick`&y=[c]',
+    'https://example.org/a?x=&copy;',
+  ])('preserves JSON values and decoded link targets for %s', (url) => {
+    const html = markdownHtml(renderFields({ rows: [{ url }], source: url }));
+    const values = [...html.matchAll(/<code>([\s\S]*?)<\/code>/g)].map((match) =>
+      JSON.parse(decodeHtml(match[1] ?? '')),
+    );
+    expect(values).toContain(url);
+    const targets = [...html.matchAll(/<a href="([^"]*)"/g)].map((match) =>
+      decodeURI(decodeHtml(match[1] ?? '')),
+    );
+    expect(targets).toEqual([url, url]);
+  });
+  it.each(['records', 'rows', 'columns'])(
+    'round-trips compact %s tables including nested collections',
+    (field) => {
+      const rows = [
+        {
+          id: '01',
+          text: 'x|`\r\n\\',
+          nested: { a: [null, false, 0] },
+          url: 'https://example.org/a?x=1&y=2',
+          optional: null,
+        },
+        { id: '02', text: '', nested: [] },
+      ];
+      expect(tableRows(markdownHtml(renderFields({ [field]: rows })))).toEqual(rows);
+      expect(tableRows(markdownHtml(renderFields({ tables: [{ columns: rows }] })))).toEqual(rows);
+      expect(renderFields({ [field]: [] })).toContain('[]');
+    },
+  );
   function parse(markdown: string) {
     const html = markdownHtml(markdown);
     return {

@@ -2,6 +2,7 @@
  * @fileoverview Dual-surface dataframe contracts and operator defaults using real DuckDB.
  * @module tests/services/drought/datacanvas-contract
  */
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,10 +71,32 @@ function scalars(value: unknown): unknown[] {
 function parity(result: Awaited<ReturnType<typeof runToolContract>>) {
   expect(result.isError).not.toBe(true);
   const rendered = text(result.content);
-  const decoded = [...rendered.matchAll(/(`{3,})\n([^\n]*)\n\1/g)].map(
-    (match) => JSON.parse(match[2] ?? 'null') as unknown,
-  );
-  const { totalCount, ...domain } = result.structuredContent as Record<string, unknown>;
+  const html = execFileSync(
+    'bun',
+    ['-e', 'console.log(Bun.markdown.html(await Bun.stdin.text()))'],
+    { input: rendered, encoding: 'utf8' },
+  ).replace(/<th[\s\S]*?<\/th>/g, '');
+  const decode = (value: string) =>
+    value
+      .replace(/&#(x[\da-f]+|\d+);/gi, (_, code: string) =>
+        String.fromCodePoint(
+          code.startsWith('x') ? Number.parseInt(code.slice(1), 16) : Number(code),
+        ),
+      )
+      .replace(
+        /&(amp|lt|gt|quot|apos);/g,
+        (_, entity: string) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[entity] ?? '',
+      );
+  const decoded = [...html.matchAll(/<code[^>]*>([\s\S]*?)<\/code>/g)]
+    .flatMap((match) => scalars(JSON.parse(decode(match[1] ?? ''))))
+    .filter((value) => !(typeof value === 'string' && /^https:\/\/[^\s<>]+$/.test(value)));
+  const { totalCount, effectiveLimit, limitNotice, ...domain } = result.structuredContent as Record<
+    string,
+    unknown
+  >;
+  if (typeof effectiveLimit === 'number')
+    expect(rendered).toContain(`**effectiveLimit:** ${effectiveLimit}`);
+  if (typeof limitNotice === 'string') expect(rendered).toContain(limitNotice);
   if (typeof totalCount === 'number') expect(rendered).toContain(`${totalCount} total`);
   const values = scalars(domain).filter(
     (value) => !(typeof value === 'string' && /^https:\/\/[^\s<>]+$/.test(value)),
@@ -81,7 +104,9 @@ function parity(result: Awaited<ReturnType<typeof runToolContract>>) {
   expect(decoded).toEqual(values);
   for (const value of scalars(result.structuredContent))
     if (typeof value === 'string' && value.startsWith('https://'))
-      expect(rendered).toContain(`](<${value}>)`);
+      expect(
+        [...html.matchAll(/<a href="([^"]*)"/g)].map((match) => decodeURI(decode(match[1] ?? ''))),
+      ).toContain(decodeURI(value));
 }
 
 beforeEach(async () => {
@@ -126,6 +151,69 @@ afterEach(async () => {
 });
 
 describe('dataframe public contracts', () => {
+  it('preserves nested query JSON once while linking every nested URL', async () => {
+    const result = await runToolContract(
+      queryTool,
+      {
+        canvas_id: handle.canvas_id,
+        sql: "SELECT {'url': 'https://example.org/proof?x=&copy;', 'proof': 7} AS nested, [{'url': 'https://example.org/array', 'proof': false}] AS urls",
+      },
+      options(),
+    );
+    expect(result.structuredContent).toMatchObject({
+      rows: [
+        {
+          nested: { url: 'https://example.org/proof?x=&copy;', proof: 7 },
+          urls: [{ url: 'https://example.org/array', proof: false }],
+        },
+      ],
+    });
+    parity(result);
+  });
+  it('proves the parity harness rejects a deliberately corrupted structured cell', async () => {
+    const result = await runToolContract(
+      queryTool,
+      { canvas_id: handle.canvas_id, sql: 'SELECT 1 AS value' },
+      options(),
+    );
+    parity(result);
+    expect(() =>
+      parity({
+        ...result,
+        structuredContent: {
+          ...queryTool.output.parse(result.structuredContent),
+          rows: [{ value: 2 }],
+        },
+      }),
+    ).toThrow();
+  });
+  it('accepts a terminal delimiter and clamps limits on both wire surfaces', async () => {
+    const result = await runToolContract(
+      queryTool,
+      { canvas_id: handle.canvas_id, sql: 'SELECT 1 AS value; -- terminal', limit: 501 },
+      options(),
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      rows: [{ value: 1 }],
+      effectiveLimit: 500,
+      limitNotice: expect.stringContaining('500'),
+    });
+    expect(text(result.content)).toContain('limitNotice');
+    parity(result);
+    const empty = await runToolContract(
+      queryTool,
+      { canvas_id: handle.canvas_id, sql: 'SELECT 1 AS value;', limit: 501, offset: 2 },
+      options(),
+    );
+    expect(empty.structuredContent).toMatchObject({
+      rows: [],
+      effectiveLimit: 500,
+      next_offset: null,
+      limitNotice: expect.stringContaining('500'),
+    });
+    expect(text(empty.content)).toContain('effectiveLimit');
+  });
   it('recovers every metadata collection for a 100-county panel on both wire surfaces without refetch', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-19T08:00:00Z'));
@@ -331,7 +419,8 @@ describe('dataframe public contracts', () => {
       { canvas_id: 'x', sql: 'SELECT 1' },
       { canvas_id: handle.canvas_id, sql: '' },
       { canvas_id: handle.canvas_id, sql: 'x'.repeat(16385) },
-      { canvas_id: handle.canvas_id, sql: 'SELECT 1', limit: 501 },
+      { canvas_id: handle.canvas_id, sql: 'SELECT 1', limit: 0 },
+      { canvas_id: handle.canvas_id, sql: 'SELECT 1', limit: 1.5 },
       { canvas_id: handle.canvas_id, sql: 'SELECT 1', offset: -1 },
       { canvas_id: handle.canvas_id, sql: 'SELECT 1', offset: 250001 },
     ]) {

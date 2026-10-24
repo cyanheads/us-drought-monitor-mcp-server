@@ -87,6 +87,10 @@ Only the eight legacy Connecticut FIPS `09001`, `09003`, `09005`, `09007`, `0900
 
 `src/data/reference.json` is the generated offline geography bundle (states, counties, tribal areas, climate divisions, HUCs) with source URLs, vintages and SHA-256 hashes. Refresh it only with `bun run scripts/update-reference-data.ts`, which downloads the official Census and USDM tables, validates them and writes the file atomically; never hand-edit it or fetch references at startup. `src/services/drought/reference-bundle.ts` encodes and decodes the stored form.
 
+Climate references include postal states from NOAA's contiguous climate codes plus USDM's verified 49xx Alaska mapping; never interpret climate prefixes as state FIPS. Reference state filters support counties and climate divisions. `parentHuc` selects descendants of an existing shorter level 2/4/6 parent before pagination; normalized parent and state filters bind cursors. Topic dependencies select both source metadata and provenance URLs, including mapping evidence and shared attribution/interpretation sources.
+
+Reference records, query rows and describe columns share lossless JSON-cell table rendering. Budget against each tool's actual renderer. Clamp positive integer reference/comparison/duration limits to 200 and query limits to 500, populating optional `effectiveLimit` and `limitNotice` enrichment on success as applicable; retain all continuation. Preserve blank optional dates and strict calendar validation. SQL normalization applies original-expression text gates, rejects multiple statements and positively identified writes, and removes only one terminal delimiter outside literals/comments; full provider parser and plan gates remain authoritative. Never restrict reads to a keyword allowlist.
+
 ### Configuration and startup
 
 `src/config/canvas-config.ts` parses `DROUGHT_DATAFRAME_DROP_ENABLED` with `z.stringbool().default(false)`. The entrypoint loads `.env`, then seeds only unset canvas defaults: DuckDB, 128 MB per engine, four canvases per tenant. Explicit `CANVAS_PROVIDER_TYPE=none` wins. An enabled engine requires `CANVAS_DEFAULT_ROW_LIMIT >= 501`.
@@ -161,6 +165,7 @@ src/
   services/drought/
     drought-service.ts                  # Snapshots, series, rankings and duration
     dataframe-service.ts                # Admission, staging, metadata and SQL
+    query-expression.ts                 # Original SQL text gates and terminal delimiter
     usdm-client.ts                      # Fixed-origin bounded HTTP acquisition
     reference-data.ts                   # Geography resolution and reference paging
     reference-bundle.ts                 # Bundle encoding and validation

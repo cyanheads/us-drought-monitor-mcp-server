@@ -19,7 +19,9 @@ const aoi = z
   .string()
   .min(1)
   .max(200)
-  .describe('Exact geography identifier, or supported exact state/county name.');
+  .describe(
+    'Exact geography identifier or state name; county names require a state and resolve exact names before unique suffix-free aliases.',
+  );
 /** Strict geography input, requiring level only for HUC. */
 export const GeographySchema = z
   .discriminatedUnion('areaType', [

@@ -101,6 +101,45 @@ afterEach(async () => {
 });
 
 describe('atomic analytical admission and retention', () => {
+  it.each([
+    '(SELECT 1 AS value)',
+    'VALUES (1)',
+    'WITH t AS (SELECT 1 AS value) SELECT * FROM t',
+    'FROM (SELECT 1 AS value)',
+    'PIVOT (SELECT 1 AS value) ON value IN (1) USING count(*)',
+  ])('preserves existing DuckDB read expressions: %s', async (sql) => {
+    const handle = (await stage()).staging!;
+    const result = await service.query(
+      { canvas_id: handle.canvas_id, sql, limit: 1, offset: 0 },
+      ctx(),
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(Object.values(result.rows[0] ?? {})).toEqual([sql.startsWith('PIVOT') ? '1' : 1]);
+  });
+  it('preserves the TABLE read form', async () => {
+    const handle = (await stage()).staging!;
+    const result = await service.query(
+      { canvas_id: handle.canvas_id, sql: `TABLE ${handle.table_name};`, limit: 1, offset: 0 },
+      ctx(),
+    );
+    expect(result.rows[0]).toMatchObject({ id: '01001', row_id: 1 });
+    expect(result.next_offset).toBe(1);
+  });
+  it.each([
+    "SELECT ';' AS value;",
+    'SELECT 1 AS value; -- trailing\n',
+    'SELECT 1 AS value; /* outer /* inner ; */ end */',
+    'SELECT $$; -- literal$$ AS value;',
+  ])('accepts one terminal delimiter without changing literals or comments: %s', async (sql) => {
+    const handle = (await stage()).staging!;
+    const result = await service.query(
+      { canvas_id: handle.canvas_id, sql, limit: 1, offset: 0 },
+      ctx(),
+    );
+    expect(result.rows).toEqual([
+      { value: sql.startsWith("SELECT '") ? ';' : sql.includes('$$') ? '; -- literal' : 1 },
+    ]);
+  });
   it('automatically retains and pages overflowing metadata even for zero observations', async () => {
     const areas = Array.from({ length: 100 }, (_, index) => ({
       areaType: 'county',

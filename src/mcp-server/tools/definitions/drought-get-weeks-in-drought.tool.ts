@@ -15,8 +15,14 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     'Get authoritative consecutive streaks or non-consecutive week counts when any county area meets the selected drought category or worse. Supply states or one county, never both; omitted selectors mean supported nationwide counties. Counts are duration statistics, not program eligibility. Follow nextCursor with unchanged filters within five minutes.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
   input: z.object({
-    startDate: z.string().max(10).describe('First requested date, YYYY-MM-DD.'),
-    endDate: z.string().max(10).describe('Last requested date, YYYY-MM-DD.'),
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe('First requested date, YYYY-MM-DD.'),
+    endDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe('Last requested date, YYYY-MM-DD.'),
     minCategory: z
       .preprocess(
         (value) => (typeof value === 'string' ? value.toUpperCase() : value),
@@ -42,13 +48,20 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
       .string()
       .max(200)
       .optional()
-      .describe('Exact county FIPS or county name, state; mutually exclusive with states.'),
+      .describe(
+        'County FIPS or exact/unique suffix-free county name, state; mutually exclusive with states.',
+      ),
     cursor: z
       .string()
       .max(2048)
       .optional()
       .describe('Continuation returned with identical filters.'),
-    limit: z.number().int().min(1).max(200).default(50).describe('Maximum rows on this page.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .default(50)
+      .describe('Maximum rows on this page; values above 200 are clamped with disclosure.'),
   }),
   output: z.object({
     guidance: z
@@ -72,7 +85,15 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     hasMore: z.boolean().describe('Another page remains.'),
     provenance: ProvenanceSchema.describe('Actual sources and attribution.'),
   }),
-  enrichment: { notice: z.string().optional().describe('Empty threshold or coverage guidance.') },
+  enrichment: {
+    notice: z.string().optional().describe('Empty threshold or coverage guidance.'),
+    effectiveLimit: z
+      .number()
+      .int()
+      .optional()
+      .describe('Effective page ceiling after clamping to 200.'),
+    limitNotice: z.string().optional().describe('Disclosure when the requested limit was clamped.'),
+  },
   errors: [
     {
       reason: 'upstream_request_rejected',
@@ -110,7 +131,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
       code: JsonRpcErrorCode.ValidationError,
       when: 'Dates are impossible, reversed or shorter than minWeeks.',
       recovery:
-        'Call drought_list_reference with topic coverage, then retry this tool with ordered calendar dates.',
+        'Use ordered calendar dates within drought_list_reference coverage; lower minWeeks or widen startDate and endDate when the threshold exceeds the window.',
       thrownBy: 'service',
     },
     {
@@ -146,7 +167,16 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     },
   ],
   async handler(input, ctx) {
-    const result = await droughtService.weeks(input, ctx.signal);
+    const limit = Math.min(input.limit, 200);
+    ctx.enrich({
+      effectiveLimit: limit,
+      ...(input.limit > limit
+        ? {
+            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}; follow cursor for every remaining row.`,
+          }
+        : {}),
+    });
+    const result = await droughtService.weeks({ ...input, limit }, ctx.signal);
     if (result.guidance) ctx.enrich.notice(result.guidance);
     else if (!result.totalCount)
       ctx.enrich.notice(

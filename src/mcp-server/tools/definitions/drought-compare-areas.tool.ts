@@ -18,11 +18,13 @@ const shared = {
   date: z
     .string()
     .max(10)
+    .regex(/^(?:|\d{4}-\d{2}-\d{2})$/)
     .optional()
     .describe('Target calendar date; defaults to latest published map.'),
   baselineDate: z
     .string()
     .max(10)
+    .regex(/^(?:|\d{4}-\d{2}-\d{2})$/)
     .optional()
     .describe('Optional exact baseline date, no later than target.'),
   metric: z
@@ -37,9 +39,10 @@ const shared = {
     .number()
     .int()
     .min(1)
-    .max(200)
     .default(20)
-    .describe('Preview row limit; complete rankings remain staged.'),
+    .describe(
+      'Preview row limit, clamped to 200 with disclosure; complete rankings remain staged.',
+    ),
   canvas_id: z
     .union([z.literal(''), CanvasIdSchema])
     .optional()
@@ -90,6 +93,12 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     provenance: ProvenanceSchema.describe('Actual sources and attribution.'),
   }),
   enrichment: {
+    effectiveLimit: z
+      .number()
+      .int()
+      .optional()
+      .describe('Effective preview ceiling after clamping to 200.'),
+    limitNotice: z.string().optional().describe('Disclosure when the requested limit was clamped.'),
     notice: z.string().optional().describe('Empty comparison or preview continuation guidance.'),
     totalCount: z
       .number()
@@ -201,8 +210,17 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     },
   ],
   async handler(input, ctx) {
+    const limit = Math.min(input.limit, 200);
+    ctx.enrich({
+      effectiveLimit: limit,
+      ...(input.limit > limit
+        ? {
+            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}; use the staged table for every remaining row.`,
+          }
+        : {}),
+    });
     const result = await dataframeService.withAdmission(ctx, (stage) =>
-      droughtService.compare(input, ctx.signal, stage),
+      droughtService.compare({ ...input, limit }, ctx.signal, stage),
     );
     ctx.enrich.total(result.comparedCount);
     if (!result.comparedCount)

@@ -33,7 +33,7 @@ const fetchedAt = new Date().toISOString();
 let fetches = 0;
 async function source(file: string, url: string): Promise<string> {
   if (captures) return readFile(`${captures}/${file}`, 'utf8');
-  if (++fetches > 12) throw new Error('Reference acquisition exceeds 12 public requests');
+  if (++fetches > 14) throw new Error('Reference acquisition exceeds 14 public requests');
   const response = await fetch(url, {
     headers: { Accept: 'application/json' },
     redirect: 'error',
@@ -216,6 +216,44 @@ async function generate(): Promise<void> {
   }
   const tribal = await aoiRecords('tribal', 'tribal');
   const climateDivisions = await aoiRecords('climdiv', 'climate_division');
+  const mappingUrl = 'https://psl.noaa.gov/data/usclimdivs/';
+  const mappingText = await source('climate-mapping.html', mappingUrl);
+  const climateStates = new Map<string, string>();
+  for (const heading of mappingText.matchAll(/<b>([\s\S]*?)<\/b>/gi)) {
+    const match = /^([A-Za-z ]+)\s+\((\d{1,2})\)$/.exec(decode(heading[1] ?? ''));
+    if (!match) continue;
+    const state = states.find((row) => row.name === match[1]);
+    if (!state?.state) throw new Error('Unknown NOAA climate state');
+    const code = (match[2] ?? '').padStart(2, '0');
+    if (climateStates.has(code)) throw new Error('Duplicate NOAA climate state');
+    climateStates.set(code, state.state);
+  }
+  if (climateStates.size !== 48) throw new Error('Incomplete NOAA contiguous climate mapping');
+  evidence(mappingUrl, mappingText, climateStates.size, 'NOAA climate division state codes');
+  const [year, month, day] = latest.split('-');
+  const climateAlaskaUrl = `https://usdmdataservices.unl.edu/api/ClimateDivisionStatistics/GetDSCI?aoi=4901&startdate=${Number(month)}/${Number(day)}/${year}&enddate=${Number(month)}/${Number(day)}/${year}`;
+  const alaskaText = await source('climate-alaska.json', climateAlaskaUrl);
+  const alaska = z
+    .tuple([
+      z.object({
+        name: z.literal('North Slope'),
+        climateDivision: z.literal(1),
+        state: z.literal('AK'),
+        mapDate: z.string(),
+      }),
+    ])
+    .parse(JSON.parse(alaskaText));
+  if (sourceDate(alaska[0].mapDate) !== latest)
+    throw new Error('Alaska climate evidence has the wrong map date');
+  climateStates.set('49', 'AK');
+  evidence(climateAlaskaUrl, alaskaText, alaska.length, `USDM climate state mapping ${latest}`);
+  for (const division of climateDivisions) {
+    const state = climateStates.get(division.id.slice(0, 2));
+    if (!state) throw new Error(`Unmapped USDM climate division ${division.id}`);
+    division.state = state;
+  }
+  if (new Set(climateDivisions.map((row) => row.id.slice(0, 2))).size !== climateStates.size)
+    throw new Error('Climate state mapping does not match the complete USDM division family');
   const huc: GeographyRecord[] = [];
   for (const level of [2, 4, 6, 8] as const)
     huc.push(...(await aoiRecords(`huc${level}`, 'huc', level)));

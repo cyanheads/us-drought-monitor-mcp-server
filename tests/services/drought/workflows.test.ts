@@ -279,6 +279,31 @@ describe('terminal acquisition lifecycle', () => {
 });
 
 describe('published snapshot workflow', () => {
+  it.each([0, 1, 2, 3, 4, 5, 6])('snaps discovery on UTC weekday offset %i', async (offset) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/USStatistics/GetDSCI') {
+        return json([
+          { mapDate: '2024-02-27', name: 'CONUS', dsci: 1 },
+          { mapDate: latest, name: 'CONUS', dsci: 1 },
+        ]);
+      }
+      return json([raw()]);
+    });
+    const service = new DroughtService(
+      new UsdmClient(fetcher),
+      undefined,
+      () => new Date(`${addDays('2024-03-12', offset)}T08:00:00Z`),
+    );
+    expect(await service.current({ area: state }, signal())).toMatchObject({
+      effectiveMapDate: latest,
+    });
+    const discovery = fetcher.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .find((url) => url.pathname === '/api/USStatistics/GetDSCI');
+    expect(discovery?.searchParams.get('startdate')).toBe('2/27/2024');
+    expect(discovery?.searchParams.get('enddate')).toBe('3/12/2024');
+  });
   it('uses actual publication on Tuesday, single-flights discovery and expires it after five minutes', async () => {
     const { service, fetcher, advance } = fixture(() => [raw()]);
     const results = await Promise.all([

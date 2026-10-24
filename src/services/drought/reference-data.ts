@@ -26,8 +26,12 @@ export function normalizeName(value: string): string {
     .trim()
     .replace(/\s+/g, ' ');
 }
-function uniqueMatch(rows: GeographyRecord[], value: string): GeographyRecord | undefined {
-  const matches = rows.filter((row) => normalizeName(row.name) === normalizeName(value));
+function uniqueMatch(
+  rows: GeographyRecord[],
+  value: string,
+  name: (row: GeographyRecord) => string = (row) => row.name,
+): GeographyRecord | undefined {
+  const matches = rows.filter((row) => normalizeName(name(row)) === normalizeName(value));
   if (matches.length > 1)
     throw validationError(
       'The exact geography name matches multiple identifiers; supply its identifier.',
@@ -96,10 +100,16 @@ export function resolveGeography(input: Geography): AreaResolution {
     const comma = value.lastIndexOf(',');
     if (comma < 1) return invalid();
     const state = resolveState(value.slice(comma + 1));
-    const row = uniqueMatch(
-      referenceBundle.counties.filter((county) => county.state === state.state),
-      value.slice(0, comma),
-    );
+    const counties = referenceBundle.counties.filter((county) => county.state === state.state);
+    const name = value.slice(0, comma);
+    const row =
+      uniqueMatch(counties, name) ??
+      uniqueMatch(counties, name, (county) =>
+        county.name.replace(
+          / (?:City and Borough|Census Area|County|Parish|Borough|Municipality|Municipio)$/i,
+          '',
+        ),
+      );
     if (!row)
       throw notFound('County name is not in the reference set for the specified state.', {
         reason: 'unknown_area',
@@ -189,7 +199,7 @@ const definitions: Partial<Record<ReferenceTopic, ReferenceRecord[]>> = {
       identifierFormat: {
         us: 'us | conus | total',
         state: 'postal code | two-digit FIPS | exact full name',
-        county: 'five-digit FIPS | exact county name, state',
+        county: 'five-digit FIPS | exact or unique suffix-free county name, state',
         huc: 'exact 2/4/6/8 digits plus matching hucLevel',
         tribal: 'bundled GEOID including suffix',
         climate_division: 'four-digit bundled AOI id (not state FIPS)',
@@ -204,20 +214,37 @@ export interface ReferenceQuery {
   hucLevel?: HucLevel;
   limit?: number;
   nameContains?: string;
+  parentHuc?: string;
   state?: string;
   topic: ReferenceTopic;
 }
 /** Filter the complete family before applying a query-bound continuation. */
 export function listReference(input: ReferenceQuery) {
+  const parentHuc = input.parentHuc?.trim() || undefined;
   if (
-    (input.state && input.topic !== 'counties') ||
+    (input.state && !['counties', 'climate_divisions'].includes(input.topic)) ||
+    (parentHuc && input.topic !== 'huc') ||
     (input.hucLevel !== undefined && input.topic !== 'huc') ||
     (input.topic === 'huc' && input.hucLevel === undefined)
   )
-    throw validationError('Reference filters do not belong to the selected topic.', {
-      reason: 'invalid_reference_filter',
-    });
+    throw validationError(
+      'Use state for counties or climate_divisions; huc requires hucLevel 2, 4, 6 or 8.',
+      {
+        reason: 'invalid_reference_filter',
+      },
+    );
   const state = input.state ? resolveState(input.state).state : undefined;
+  if (
+    parentHuc &&
+    (!/^(?:\d{2}|\d{4}|\d{6})$/.test(parentHuc) ||
+      !input.hucLevel ||
+      parentHuc.length >= input.hucLevel ||
+      !referenceBundle.huc.some((row) => row.id === parentHuc && row.hucLevel === parentHuc.length))
+  )
+    throw validationError(
+      'parentHuc must identify an existing HUC at level 2, 4 or 6, shorter than hucLevel.',
+      { reason: 'invalid_reference_filter' },
+    );
   const tokens = normalizeName(input.nameContains ?? '')
     .split(' ')
     .filter(Boolean);
@@ -237,6 +264,7 @@ export function listReference(input: ReferenceQuery) {
     (row) =>
       (!state || ('state' in row && row.state === state)) &&
       (input.hucLevel === undefined || ('hucLevel' in row && row.hucLevel === input.hucLevel)) &&
+      (!parentHuc || row.id.startsWith(parentHuc)) &&
       tokens.every((token) => normalizeName(row.name).includes(token)),
   );
   const binding = createHash('sha256')
@@ -246,6 +274,7 @@ export function listReference(input: ReferenceQuery) {
         tokens,
         state,
         hucLevel: input.hucLevel,
+        parentHuc,
         version: referenceBundle.bundleVersion,
       }),
     )
@@ -286,6 +315,43 @@ export function listReference(input: ReferenceQuery) {
       reason: 'dataset_too_large',
       component: 'reference_record',
     });
+  const sourceMetadata = referenceBundle.sourceMetadata.filter((source) => {
+    const url = source.url;
+    if (url.endsWith('/Permission.aspx') || url.endsWith('/DSCI.aspx')) return true;
+    switch (input.topic) {
+      case 'states':
+        return url.endsWith('/state.txt');
+      case 'counties':
+        return (
+          url.endsWith('/state.txt') ||
+          url.includes('national_county2020') ||
+          url.includes('/CountyStatistics/')
+        );
+      case 'climate_divisions':
+        return (
+          url.endsWith('/state.txt') ||
+          url.includes('?climdiv') ||
+          url.includes('/usclimdivs/') ||
+          url.includes('/ClimateDivisionStatistics/')
+        );
+      case 'tribal':
+        return url.endsWith('?tribal');
+      case 'huc':
+        return url.endsWith(`?huc${input.hucLevel}`);
+      case 'dsci':
+        return url.endsWith('/DSCI.aspx');
+      case 'categories':
+        return url.endsWith('/DroughtClassification.aspx');
+      case 'coverage':
+        return false;
+      case 'area_types':
+        return true;
+      default: {
+        const unhandled: never = input.topic;
+        throw new TypeError(`Unhandled reference topic: ${unhandled}`);
+      }
+    }
+  });
   const result = {
     topic: input.topic,
     records,
@@ -293,10 +359,10 @@ export function listReference(input: ReferenceQuery) {
     nextCursor: null as string | null,
     hasMore: false,
     bundleVersion: referenceBundle.bundleVersion,
-    sourceMetadata: referenceBundle.sourceMetadata,
+    sourceMetadata,
     provenance: provenance(
-      referenceBundle.sourceMetadata.map((source) => source.url),
-      referenceBundle.sourceMetadata[0]?.fetchedAt,
+      sourceMetadata.map((source) => source.url),
+      sourceMetadata[0]?.fetchedAt,
     ),
   };
   function continuation(): void {
