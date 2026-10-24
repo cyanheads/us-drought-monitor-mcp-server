@@ -1,6 +1,6 @@
 {
   "name": "us-drought-monitor-mcp-server",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Query U.S. Drought Monitor severity, DSCI, population, and drought duration via MCP. STDIO or Streamable HTTP.",
   "author": {
     "name": "cyanheads",
