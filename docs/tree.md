@@ -1,6 +1,6 @@
 # us-drought-monitor-mcp-server - Directory Structure
 
-Generated on: 2026-10-24 07:47:58
+Generated on: 2026-10-26 18:15:24
 
 ```text
 us-drought-monitor-mcp-server/
@@ -25,6 +25,7 @@ us-drought-monitor-mcp-server/
 │   └── settings.json
 ├── changelog/
 │   ├── 0.1.x/
+│   ├── 0.2.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
@@ -36,6 +37,8 @@ us-drought-monitor-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -134,9 +137,14 @@ us-drought-monitor-mcp-server/
 │   ├── release-github.ts
 │   ├── tree.ts
 │   └── update-reference-data.ts
+├── skills/
+│   └── us-drought-monitor-guide/
+│       └── SKILL.md
 ├── src/
 │   ├── config/
-│   │   └── canvas-config.ts
+│   │   ├── canvas-config.ts
+│   │   ├── load-env.ts
+│   │   └── page-limits.ts
 │   ├── data/
 │   │   └── reference.json
 │   ├── mcp-server/
@@ -177,11 +185,16 @@ us-drought-monitor-mcp-server/
 │   ├── integration/
 │   ├── prompts/
 │   ├── resources/
+│   ├── scripts/
+│   │   └── packaging-doc-entries.test.ts
 │   ├── services/
 │   │   └── drought/
 │   │       ├── datacanvas-contract.test.ts
 │   │       ├── datacanvas.test.ts
 │   │       ├── dates.test.ts
+│   │       ├── domain-workflows.test.ts
+│   │       ├── domain.test.ts
+│   │       ├── page-limits.test.ts
 │   │       ├── query-expression.test.ts
 │   │       ├── reference-acquisition.test.ts
 │   │       ├── reference-bundle.test.ts
@@ -208,7 +221,9 @@ us-drought-monitor-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json
