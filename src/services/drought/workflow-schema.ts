@@ -3,9 +3,26 @@
  * @module services/drought/workflow-schema
  */
 import { z } from '@cyanheads/mcp-ts-core';
+import { METADATA_FIELDS } from './metadata-pages.js';
 import { AreaSchema, MetricSchema, StatisticsTypeSchema } from './types.js';
 
 const nullableNumber = z.number().nullable();
+/** Truthful first-prefix counts for complete retained metadata collections. */
+export const MetadataPagesSchema = z.partialRecord(
+  z.enum(METADATA_FIELDS),
+  z.object({
+    total: z.number().int().nonnegative().describe('Complete retained collection size.'),
+    returned: z.number().int().nonnegative().describe('Items in this inline first prefix.'),
+    next_offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .nullable()
+      .describe(
+        'Continue with drought_dataframe_describe metadata_field and this offset, or null.',
+      ),
+  }),
+);
 /** Explicit named cumulative or categorical values, preserving missing buckets. */
 export const CumulativeBucketsSchema = z
   .object({

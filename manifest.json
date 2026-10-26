@@ -21,6 +21,7 @@
         "MCP_AUTH_MODE": "none",
         "NODE_ENV": "production",
         "CANVAS_PROVIDER_TYPE": "none",
+        "DROUGHT_CLAMP_LIMITS": "${user_config.DROUGHT_CLAMP_LIMITS}",
         "MCP_LOG_LEVEL": "${user_config.MCP_LOG_LEVEL}"
       }
     }
@@ -31,6 +32,13 @@
   "tools_generated": true,
   "prompts_generated": true,
   "user_config": {
+    "DROUGHT_CLAMP_LIMITS": {
+      "type": "string",
+      "title": "Clamp page limits",
+      "description": "Clamp oversized positive page limits; false enforces advertised maxima.",
+      "required": false,
+      "default": "true"
+    },
     "MCP_LOG_LEVEL": {
       "type": "string",
       "title": "Log level",

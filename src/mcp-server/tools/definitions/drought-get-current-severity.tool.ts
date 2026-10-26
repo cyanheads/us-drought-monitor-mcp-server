@@ -53,7 +53,7 @@ export const droughtGetCurrentSeverityTool = tool('drought_get_current_severity'
           areaPercentCategorical: CategoricalBucketsSchema.describe('Exclusive area percent.'),
           areaSqMilesCumulative: CumulativeBucketsSchema.describe('Cumulative area square miles.'),
           populationCountCumulative: CumulativeBucketsSchema.nullable().describe(
-            'Cumulative population in people, or null.',
+            'Cumulative population estimates in people, or null; see provenance.populationInterpretation.',
           ),
           populationStatus: z
             .enum(['available', 'unsupported', 'missing'])
@@ -130,7 +130,7 @@ export const droughtGetCurrentSeverityTool = tool('drought_get_current_severity'
     {
       reason: 'dataset_too_large',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'The complete snapshot exceeds bounded response budgets.',
+      when: 'The complete snapshot exceeds acquisition or normalized-data quotas.',
       recovery: 'Call drought_get_current_severity for one smaller geography selector and retry.',
       thrownBy: 'service',
     },

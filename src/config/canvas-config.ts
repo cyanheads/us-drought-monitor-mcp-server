@@ -34,7 +34,8 @@ export function getCanvasConfig() {
         .stringbool()
         .default(false)
         .describe('Enable deletion of disposable staged tables.'),
+      clampLimits: z.stringbool().default(true).describe('Clamp positive oversized page limits.'),
     }),
-    { dropEnabled: 'DROUGHT_DATAFRAME_DROP_ENABLED' },
+    { dropEnabled: 'DROUGHT_DATAFRAME_DROP_ENABLED', clampLimits: 'DROUGHT_CLAMP_LIMITS' },
   );
 }

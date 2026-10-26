@@ -14,6 +14,7 @@ const collections = [
   ['counties', 'county'],
   ['tribal', 'tribal'],
   ['climateDivisions', 'climate_division'],
+  ['riverForecastCenters', 'river_forecast_center'],
   ['huc', 'huc'],
 ] as const;
 const StoredRecordSchema = GeographyRecordSchema.omit({ areaType: true, sourceVintage: true })
@@ -26,6 +27,7 @@ const StoredBundleSchema = ReferenceBundleSchema.extend({
   counties: z.array(StoredRecordSchema),
   tribal: z.array(StoredRecordSchema),
   climateDivisions: z.array(StoredRecordSchema),
+  riverForecastCenters: z.array(StoredRecordSchema),
   huc: z.array(StoredRecordSchema),
 });
 

@@ -17,6 +17,7 @@ import {
   type Metric,
   type MetricObservation,
   metricUnit,
+  POPULATION_INTERPRETATION,
   provenance,
   type StatisticsType,
   type WeeksObservation,
@@ -27,7 +28,6 @@ import {
   type UsdmClient,
   usdmClient,
 } from './usdm-client.js';
-import { renderWorkflow } from './workflow-format.js';
 import type { ComparisonRow, DateRun, StageHandle, WeeklyRow } from './workflow-schema.js';
 import { CategoricalBucketsSchema, CumulativeBucketsSchema } from './workflow-schema.js';
 
@@ -40,7 +40,7 @@ export interface StageRequest {
   rows: WeeklyRow[] | ComparisonRow[];
   signal: AbortSignal;
 }
-/** Wave-three adapter returns a fitting preview and a handle to every original row. */
+/** Return every inline row or a preview with a handle to the complete table. */
 export type StageProducer = (request: StageRequest) => Promise<{
   rows: WeeklyRow[] | ComparisonRow[];
   staging: StageHandle | null;
@@ -79,25 +79,13 @@ function rangeWeeks(start: string, end: string): number {
 }
 function failLarge(component: string): never {
   throw validationError(
-    'The complete response exceeds its budget; use fewer areas or a shorter date range in the same drought tool.',
+    'The complete dataset exceeds acquisition or cache quotas; use fewer areas or a shorter date range in the same drought tool.',
     { reason: 'dataset_too_large', component },
   );
 }
-function metadataBound(metadata: unknown): void {
-  if (JSON.stringify(metadata).length > 40_000) failLarge('response_metadata');
-}
-function envelopeBound<T>(value: T): T {
-  if (JSON.stringify(value).length > 80_000 || renderWorkflow(value).length > 80_000)
-    failLarge('response_envelope');
-  return value;
-}
 const inlineProducer: StageProducer = (request) => {
-  if (
-    JSON.stringify(request.rows).length > 40_000 ||
-    JSON.stringify(request.metadata).length > 40_000 ||
-    renderWorkflow({ ...request.metadata, rows: request.rows, staging: null }).length > 80_000 ||
-    (request.limit !== undefined && request.rows.length > request.limit)
-  )
+  request.signal.throwIfAborted();
+  if (request.canvas_id)
     throw configurationError(
       'This complete result requires analytical staging; enable the drought dataframe installation and retry the same request.',
       { reason: 'canvas_unavailable' },
@@ -306,8 +294,11 @@ export class DroughtService {
     const end = endDate > latest ? latest : endDate;
     return start <= end ? { startDate: start, endDate: end } : null;
   }
-  private source(budget: RequestBudget) {
-    return provenance([...budget.sourceUrls], budget.retrievedAt);
+  private source(budget: RequestBudget, population = false) {
+    return {
+      ...provenance([...budget.sourceUrls], budget.retrievedAt),
+      ...(population ? { populationInterpretation: POPULATION_INTERPRETATION } : {}),
+    };
   }
 
   /** Full normalized series producer, before staging or preview selection. */
@@ -324,11 +315,9 @@ export class DroughtService {
       });
     const snapped = mapRange(input.startDate, input.endDate);
     const budget = new RequestBudget(signal);
-    const preliminary = this.queries(
-      areas,
-      snapped.startDate < AVAILABLE_FROM ? AVAILABLE_FROM : snapped.startDate,
-      snapped.endDate,
-    );
+    let acquisitionStart = snapped.startDate;
+    if (acquisitionStart < AVAILABLE_FROM) acquisitionStart = AVAILABLE_FROM;
+    const preliminary = this.queries(areas, acquisitionStart, snapped.endDate);
     budget.preflight(1 + preliminary.length * 2);
     const latestMapDate = await this.latest(budget);
     const effectiveRange = this.clipped(snapped.startDate, snapped.endDate, latestMapDate);
@@ -437,7 +426,7 @@ export class DroughtService {
       missingObservations,
       summary,
       ...(legacyNotice(areas) ? { guidance: legacyNotice(areas) } : {}),
-      provenance: this.source(budget),
+      provenance: this.source(budget, metric.startsWith('population_')),
     };
     return { rows, metadata, signal: budget.signal };
   }
@@ -449,12 +438,12 @@ export class DroughtService {
       ...full,
       ...(input.canvas_id ? { canvas_id: input.canvas_id } : {}),
     });
-    return envelopeBound({
+    return {
       ...full.metadata,
       ...staged.metadata,
       rows: staged.rows as WeeklyRow[],
       staging: staged.staging,
-    });
+    };
   }
 
   /** Exact-week snapshot with authoritative 4/52-week DSCI baselines. */
@@ -464,6 +453,7 @@ export class DroughtService {
     const budget = new RequestBudget(signal, 7);
     const latestMapDate = await this.latest(budget);
     const effectiveMapDate = input.date ? mapDate(input.date) : latestMapDate;
+    const populationSupported = ['us', 'state', 'county'].includes(input.area.areaType);
     const base = {
       found: false,
       requestedArea: input.area,
@@ -474,17 +464,18 @@ export class DroughtService {
       availableFrom: AVAILABLE_FROM,
     };
     if (effectiveMapDate < AVAILABLE_FROM || effectiveMapDate > latestMapDate)
-      return envelopeBound({
+      return {
         ...base,
         snapshots: [],
         guidance:
           legacyNotice(areas) ??
           `Published maps span ${AVAILABLE_FROM} through ${latestMapDate}; call drought_list_reference with topic coverage.`,
-        provenance: this.source(budget),
-      });
+        provenance: this.source(budget, populationSupported),
+      };
     const queries = this.queries(areas, effectiveMapDate, effectiveMapDate);
-    const populationSupported = ['us', 'state', 'county'].includes(input.area.areaType);
     budget.preflight(budget.requests + queries.length * (populationSupported ? 5 : 4));
+    let baselineStart = addDays(effectiveMapDate, -364);
+    if (baselineStart < AVAILABLE_FROM) baselineStart = AVAILABLE_FROM;
     const components = await budget.all(
       queries.map(async (query) => {
         const [cumulative, categorical, miles, population, dsci] = await budget.all([
@@ -509,10 +500,7 @@ export class DroughtService {
           this.client.dsci(
             {
               ...query,
-              startDate:
-                addDays(effectiveMapDate, -364) < AVAILABLE_FROM
-                  ? AVAILABLE_FROM
-                  : addDays(effectiveMapDate, -364),
+              startDate: baselineStart,
             },
             budget,
           ),
@@ -584,7 +572,7 @@ export class DroughtService {
         },
       ];
     });
-    return envelopeBound({
+    return {
       ...base,
       found: snapshots.length > 0,
       snapshots,
@@ -595,8 +583,8 @@ export class DroughtService {
           : snapshots.length
             ? null
             : 'No snapshot observations are available for this geography and week; call drought_list_reference for the geography type.'),
-      provenance: this.source(budget),
-    });
+      provenance: this.source(budget, populationSupported),
+    };
   }
 
   /** Produce the entire comparable population before any top-limit preview. */
@@ -720,7 +708,6 @@ export class DroughtService {
       excludedAreas,
       provenance: this.source(budget),
     };
-    metadataBound(metadata);
     return { rows, metadata, signal: budget.signal };
   }
   /** Return complete ranked rows inline, or pass all rows to the staging adapter. */
@@ -732,11 +719,11 @@ export class DroughtService {
       limit: input.limit ?? 20,
       ...(input.canvas_id ? { canvas_id: input.canvas_id } : {}),
     });
-    return envelopeBound({
+    return {
       ...full.metadata,
       rows: staged.rows as ComparisonRow[],
       staging: staged.staging,
-    });
+    };
   }
 
   private async fetchWeeks(input: WeeksInput, signal: AbortSignal) {
@@ -816,7 +803,6 @@ export class DroughtService {
       ...(county && legacyNotice([county]) ? { guidance: legacyNotice([county]) } : {}),
       provenance: this.source(budget),
     };
-    metadataBound(metadata);
     return { metadata, rows: filtered };
   }
   /** Immutable five-minute query-bound paging; cursors never refresh publication windows. */
@@ -892,18 +878,9 @@ export class DroughtService {
       cached = { binding, expires: now + 300_000, bytes, result };
       this.weeksCache.set(id, cached);
     }
-    const rows: WeeksObservation[] = [];
-    let characters = 0;
-    for (const row of cached.result.rows.slice(offset, offset + (input.limit ?? 50))) {
-      const size = JSON.stringify(row).length;
-      if (characters + size > 40_000) {
-        if (!rows.length) failLarge('weeks_record');
-        break;
-      }
-      rows.push(row);
-      characters += size;
-    }
-    const result = () => ({
+    const rows: WeeksObservation[] = cached.result.rows.slice(offset, offset + (input.limit ?? 25));
+    signal.throwIfAborted();
+    return {
       ...cached.result.metadata,
       rows,
       nextCursor:
@@ -911,13 +888,7 @@ export class DroughtService {
           ? Buffer.from(JSON.stringify({ id, offset: offset + rows.length })).toString('base64url')
           : null,
       hasMore: offset + rows.length < cached.result.rows.length,
-    });
-    while (JSON.stringify(result()).length > 80_000 || renderWorkflow(result()).length > 80_000) {
-      rows.pop();
-      if (!rows.length) failLarge('weeks_record');
-    }
-    signal.throwIfAborted();
-    return result();
+    };
   }
 }
 /** Process-local workflow service, with no persistent user state. */

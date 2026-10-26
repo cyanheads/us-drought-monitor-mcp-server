@@ -4,6 +4,7 @@
  */
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { effectiveLimit, pageLimit } from '../../../config/page-limits.js';
 import { renderFields } from '../../../services/drought/format.js';
 import { listReference } from '../../../services/drought/reference-data.js';
 import {
@@ -20,7 +21,9 @@ export const droughtListReferenceTool = tool('drought_list_reference', {
     'Look up drought categories, DSCI formulas, metric support, publication coverage and exact geography identifiers. Filter complete families by nameContains before paging. Use state for counties or climate_divisions; huc requires hucLevel 2, 4, 6 or 8 and accepts a shorter parentHuc. Follow nextCursor with the same filters to browse every match.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   input: z.object({
-    topic: ReferenceTopicSchema.describe('Reference family to browse.'),
+    topic: ReferenceTopicSchema.describe(
+      'Reference family to browse; river_forecast_centers provides official RFC codes and names.',
+    ),
     nameContains: z
       .string()
       .max(200)
@@ -44,12 +47,7 @@ export const droughtListReferenceTool = tool('drought_list_reference', {
       .max(2048)
       .optional()
       .describe('Continuation cursor from the previous page with the same filters.'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .default(50)
-      .describe('Maximum records on this page; values above 200 are clamped with disclosure.'),
+    limit: pageLimit(25, 200, 'records per page'),
   }),
   output: z.object({
     topic: ReferenceTopicSchema.describe('Selected reference family.'),
@@ -101,17 +99,10 @@ export const droughtListReferenceTool = tool('drought_list_reference', {
         'Call drought_list_reference with topic area_types and use filters belonging to the selected topic.',
       thrownBy: 'service',
     },
-    {
-      reason: 'dataset_too_large',
-      code: JsonRpcErrorCode.ValidationError,
-      when: 'A complete reference record exceeds the response budget.',
-      recovery:
-        'Use a narrower nameContains filter in drought_list_reference to select other records.',
-      thrownBy: 'service',
-    },
   ],
   handler(input, ctx) {
-    const limit = Math.min(input.limit, 200);
+    ctx.signal.throwIfAborted();
+    const limit = effectiveLimit(input.limit, 200, 'drought_list_reference', ctx);
     ctx.enrich({
       effectiveLimit: limit,
       ...(input.limit > limit

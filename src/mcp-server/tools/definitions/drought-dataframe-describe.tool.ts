@@ -5,6 +5,7 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { CANVAS_IDENTIFIER_REGEX, CanvasIdSchema } from '@cyanheads/mcp-ts-core/canvas';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { effectiveLimit, pageLimit } from '../../../config/page-limits.js';
 import { dataframeService } from '../../../services/drought/dataframe-service.js';
 import { renderFields } from '../../../services/drought/format.js';
 import { METADATA_FIELDS } from '../../../services/drought/metadata-pages.js';
@@ -37,13 +38,7 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
       .min(0)
       .default(0)
       .describe('Items to skip in the retained metadata snapshot.'),
-    metadata_limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(100)
-      .default(20)
-      .describe('Maximum metadata items, further bounded by response budgets.'),
+    metadata_limit: pageLimit(20, 100, 'metadata items per page'),
   }),
   output: z.object({
     canvas_id: z.string().describe('Supplied canvas token.'),
@@ -59,7 +54,7 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
         next_offset: z.number().int().nullable().describe('Next offset, or null at the end.'),
       })
       .optional()
-      .describe('One complete bounded metadata page for a named table.'),
+      .describe('Requested count of complete metadata items, fewer only at exhaustion.'),
     tables: z
       .array(
         z
@@ -120,16 +115,14 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
         'Call drought_dataframe_describe with the same canvas_id, or re-stage with drought_get_timeseries or drought_compare_areas.',
       thrownBy: 'service',
     },
-    {
-      reason: 'dataset_too_large',
-      code: JsonRpcErrorCode.ValidationError,
-      when: 'The complete metadata cannot fit the response.',
-      recovery:
-        'Narrow dates or areas in drought_get_timeseries or drought_compare_areas and stage a smaller table.',
-      thrownBy: 'service',
-    },
   ],
   enrichment: {
+    effectiveLimit: z
+      .number()
+      .int()
+      .optional()
+      .describe('Effective metadata page ceiling after clamping to 100.'),
+    limitNotice: z.string().optional().describe('Disclosure when metadata_limit was clamped.'),
     totalCount: z
       .number()
       .int()
@@ -137,13 +130,22 @@ export const droughtDataframeDescribeTool = tool('drought_dataframe_describe', {
       .describe('Total items in the requested retained metadata collection.'),
   },
   async handler(input, ctx) {
+    const limit = effectiveLimit(input.metadata_limit, 100, 'drought_dataframe_describe', ctx);
+    ctx.enrich({
+      effectiveLimit: limit,
+      ...(input.metadata_limit > limit
+        ? {
+            limitNotice: `Requested metadata_limit ${input.metadata_limit} was clamped to ${limit}; follow next_offset for every remaining metadata item.`,
+          }
+        : {}),
+    });
     const result = await dataframeService.describe(
       {
         canvas_id: input.canvas_id,
         ...(input.table_name ? { table_name: input.table_name } : {}),
         ...(input.metadata_field ? { metadata_field: input.metadata_field } : {}),
         metadata_offset: input.metadata_offset,
-        metadata_limit: input.metadata_limit,
+        metadata_limit: limit,
       },
       ctx,
     );

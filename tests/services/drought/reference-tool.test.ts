@@ -9,6 +9,52 @@ import { droughtListReferenceTool } from '@/mcp-server/tools/definitions/drought
 import { listReference, referenceBundle } from '@/services/drought/reference-data.js';
 
 describe('drought_list_reference public contract', () => {
+  it('returns exact wide reference page counts with complete text values and continuation', async () => {
+    const fixtures = Array.from({ length: 201 }, (_, index) => ({
+      areaType: 'county' as const,
+      id: `01${String(index).padStart(3, '0')}`,
+      name: `Wide fixture ${index} ${'w'.repeat(1000)}`,
+      state: 'AL',
+      sourceVintage: 'Count fixture',
+    }));
+    referenceBundle.counties.push(...fixtures);
+    try {
+      const first = await runToolContract(droughtListReferenceTool, {
+        topic: 'counties',
+        nameContains: 'Wide fixture',
+        limit: 200,
+      });
+      const page = droughtListReferenceTool.output.parse(first.structuredContent);
+      expect(page.records).toEqual(fixtures.slice(0, 200));
+      expect(page.hasMore).toBe(true);
+      const rendered = first.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n');
+      for (const row of page.records) expect(rendered).toContain(row.name);
+      const last = await runToolContract(droughtListReferenceTool, {
+        topic: 'counties',
+        nameContains: 'Wide fixture',
+        limit: 200,
+        cursor: page.nextCursor!,
+      });
+      expect(droughtListReferenceTool.output.parse(last.structuredContent)).toMatchObject({
+        records: [fixtures[200]],
+        nextCursor: null,
+        totalCount: 201,
+      });
+      expect(
+        last.content.some(
+          (block) => block.type === 'text' && block.text.includes(fixtures[200]!.name),
+        ),
+      ).toBe(true);
+    } finally {
+      referenceBundle.counties.splice(
+        referenceBundle.counties.length - fixtures.length,
+        fixtures.length,
+      );
+    }
+  });
   it('clamps over-ceiling pages with dual-surface disclosure and complete continuation', async () => {
     const result = await runToolContract(droughtListReferenceTool, {
       topic: 'counties',
@@ -89,8 +135,6 @@ describe('drought_list_reference public contract', () => {
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('\n');
-    expect(JSON.stringify(result.structuredContent).length).toBeLessThanOrEqual(80_000);
-    expect(rendered.length).toBeLessThanOrEqual(80_000);
     for (const block of blocks ?? [])
       if (block.type === 'text') expect(rendered).toContain(block.text);
     for (const record of parsed.records) {

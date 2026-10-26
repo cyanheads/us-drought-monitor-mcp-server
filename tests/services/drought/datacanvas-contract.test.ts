@@ -12,6 +12,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCanvasConfig, seedCanvasDefaults } from '@/config/canvas-config.js';
+import { droughtCompareAreasTool as compareTool } from '@/mcp-server/tools/definitions/drought-compare-areas.tool.js';
 import { droughtDataframeDescribeTool as describeTool } from '@/mcp-server/tools/definitions/drought-dataframe-describe.tool.js';
 import { droughtDataframeDropTool as dropTool } from '@/mcp-server/tools/definitions/drought-dataframe-drop.tool.js';
 import { droughtDataframeQueryTool as queryTool } from '@/mcp-server/tools/definitions/drought-dataframe-query.tool.js';
@@ -74,7 +75,7 @@ function parity(result: Awaited<ReturnType<typeof runToolContract>>) {
   const html = execFileSync(
     'bun',
     ['-e', 'console.log(Bun.markdown.html(await Bun.stdin.text()))'],
-    { input: rendered, encoding: 'utf8' },
+    { input: text(result.content.slice(0, 1)), encoding: 'utf8' },
   ).replace(/<th[\s\S]*?<\/th>/g, '');
   const decode = (value: string) =>
     value
@@ -151,6 +152,255 @@ afterEach(async () => {
 });
 
 describe('dataframe public contracts', () => {
+  it.each(['population_count', 'area_percent'] as const)(
+    'retains %s population/RFC provenance across describe and paged SQL without refetch',
+    async (metric) => {
+      const population = metric === 'population_count';
+      const context = createMockContext({ tenantId });
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        const rows = url.pathname.includes('/USStatistics/')
+          ? [{ mapDate: '2024-03-05', name: 'CONUS', dsci: 1 }]
+          : ['2024-02-27', '2024-03-05'].map((mapDate) => ({
+              mapDate,
+              ...(population
+                ? { fips: '53033', county: 'King County', state: 'WA' }
+                : url.pathname.endsWith('/GetDSCI')
+                  ? { name: 'Colorado Basin' }
+                  : { riverForecastCenterName: 'Colorado Basin' }),
+              none: 0,
+              d0: 78.7,
+              d1: population ? 279048.05 : 13.35,
+              d2: 1.63,
+              d3: 0,
+              d4: 0,
+              dsci: 94,
+            }));
+        return new Response(JSON.stringify(rows));
+      });
+      const service = new DroughtService(
+        new UsdmClient(fetcher),
+        undefined,
+        () => new Date('2024-03-12T00:00:00Z'),
+      );
+      const produced = await dataframeService.withAdmission(context, (stage) =>
+        service.timeseries(
+          {
+            areas: [
+              population
+                ? { areaType: 'county', aoi: '53033' }
+                : { areaType: 'river_forecast_center', aoi: 'CBRFC' },
+            ],
+            startDate: '2024-02-27',
+            endDate: '2024-03-05',
+            metric,
+            canvas_id: handle.canvas_id,
+          },
+          context.signal,
+          (request) => stage({ ...request, limit: 1 }),
+        ),
+      );
+      const parsed = timeseriesTool.output.parse(produced);
+      expect(parsed.staging?.row_count).toBe(2);
+      const rendered = text(await timeseriesTool.format!(parsed));
+      expect(rendered).toContain(population ? '279048.05' : 'CBRFC');
+      if (population) {
+        expect(parsed.provenance).toMatchObject({
+          populationInterpretation: {
+            caveat: expect.stringContaining('rough census-based estimates'),
+          },
+        });
+        expect(rendered).toContain('PopulationStatistics.aspx');
+      } else expect(parsed.provenance).not.toHaveProperty('populationInterpretation');
+      const calls = fetcher.mock.calls.length;
+      const staged = parsed.staging!;
+      const described = await runToolContract(
+        describeTool,
+        { canvas_id: staged.canvas_id, table_name: staged.table_name },
+        options(),
+      );
+      parity(described);
+      expect(
+        describeTool.output.parse(described.structuredContent).tables[0]?.metadata,
+      ).toMatchObject({ provenance: parsed.provenance });
+      for (const [offset, count] of [
+        [0, 1],
+        [1, 1],
+        [2, 0],
+      ] as const) {
+        const result = await runToolContract(
+          queryTool,
+          {
+            canvas_id: staged.canvas_id,
+            sql: `SELECT * FROM ${staged.table_name} ORDER BY row_id`,
+            limit: 1,
+            offset,
+          },
+          options(),
+        );
+        const page = queryTool.output.parse(result.structuredContent);
+        parity({ ...result, structuredContent: page });
+        if (offset === 0) {
+          expect(result.structuredContent).toMatchObject({ truncated: true, shown: 1, cap: 1 });
+          expect(text(result.content)).toContain('Continue with next_offset');
+        }
+        if (offset === 2) expect(text(result.content)).toContain('No rows remain at offset 2');
+        expect(page.rows).toHaveLength(count);
+        expect(
+          page.tableMetadata.find((table) => table.name === staged.table_name)?.provenance,
+        ).toEqual(parsed.provenance);
+        if (population) expect(text(result.content)).toContain('PopulationStatistics.aspx');
+        if (count)
+          expect(page.rows[0]).toMatchObject(
+            population ? { id: '53033', d1_d4: 279048.05 } : { id: 'CBRFC', d2_d4: 1.63 },
+          );
+      }
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+    },
+  );
+  it('preserves cancellation while reading retained metadata on both surfaces', async () => {
+    const controller = new AbortController();
+    const acquire = canvas.acquire.bind(canvas);
+    vi.spyOn(canvas, 'acquire').mockImplementation(async (...args) => {
+      const instance = await acquire(...args);
+      controller.abort();
+      return instance;
+    });
+    const result = await runToolContract(
+      describeTool,
+      { canvas_id: handle.canvas_id, table_name: handle.table_name },
+      { context: { tenantId, signal: controller.signal } },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: { code: JsonRpcErrorCode.RequestCancelled },
+    });
+    expect(text(result.content)).toMatch(/cancel/i);
+    vi.restoreAllMocks();
+  });
+  it('names staged continuation only when a clamped comparison has rows remaining', async () => {
+    const counties = referenceBundle.counties.filter((county) => county.state === 'TX');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2024-03-12T08:00:00Z'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        return new Response(
+          JSON.stringify(
+            url.pathname.includes('/USStatistics/')
+              ? [{ mapDate: '2024-03-05', name: 'CONUS', dsci: 1 }]
+              : counties.map((county) => ({
+                  fips: county.id,
+                  county: county.name,
+                  state: 'TX',
+                  mapDate: '2024-03-05',
+                  dsci: 1,
+                })),
+          ),
+        );
+      }),
+    );
+    const result = await runToolContract(
+      compareTool,
+      { scope: 'counties', state: 'TX', date: '2024-03-05', limit: 201 },
+      options(),
+    );
+    expect(result.isError).not.toBe(true);
+    const parsed = compareTool.output.parse(result.structuredContent);
+    expect(parsed.staging).not.toBeNull();
+    expect(parsed.rows.length).toBeLessThan(parsed.comparedCount);
+    expect(result.structuredContent).toMatchObject({
+      effectiveLimit: 200,
+      limitNotice: expect.stringContaining('Use the staged table'),
+    });
+    expect(text(result.content)).toContain('Use the staged table');
+  });
+  it('clamps count-based retained metadata pages and recovers each wide item exactly once', async () => {
+    const context = createMockContext({ tenantId });
+    const items = Array.from({ length: 250 }, (_, index) => ({
+      index,
+      nested: { value: 'm'.repeat(1000) },
+    }));
+    const staged = await dataframeService.withAdmission(context, (stage) =>
+      stage({ kind: 'timeseries', rows: [], metadata: { summary: items }, signal: context.signal }),
+    );
+    const base = {
+      canvas_id: staged.staging!.canvas_id,
+      table_name: staged.staging!.table_name,
+      metadata_field: 'summary' as const,
+    };
+    const recovered: unknown[] = [];
+    for (const [offset, count, next] of [
+      [0, 100, 100],
+      [100, 100, 200],
+      [200, 50, null],
+      [300, 0, null],
+    ] as const) {
+      const result = await runToolContract(
+        describeTool,
+        { ...base, metadata_offset: offset, metadata_limit: 101 },
+        options(),
+      );
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        effectiveLimit: 100,
+        limitNotice: expect.stringContaining('100'),
+        metadata_page: { total: 250, offset, next_offset: next },
+      });
+      const page = describeTool.output.parse(result.structuredContent).metadata_page!;
+      expect(page.items).toHaveLength(count);
+      recovered.push(...page.items);
+      parity(result);
+    }
+    expect(recovered).toEqual(items);
+    const exact = await runToolContract(describeTool, { ...base, metadata_limit: 100 }, options());
+    expect(describeTool.output.parse(exact.structuredContent).metadata_page?.items).toEqual(
+      items.slice(0, 100),
+    );
+  });
+  it('returns count-based wide SQL pages and an oversized singleton intact on both surfaces', async () => {
+    const context = createMockContext({ tenantId });
+    const staged = await dataframeService.withAdmission(context, (stage) =>
+      stage({
+        kind: 'timeseries',
+        rows: Array.from({ length: 250 }, (_, index) => ({ ...original[0]!, row_id: index })),
+        metadata: source,
+        limit: 1,
+        canvas_id: handle.canvas_id,
+        signal: context.signal,
+      }),
+    );
+    const sql = `SELECT row_id, repeat('x', 1000) AS wide FROM ${staged.staging!.table_name} ORDER BY row_id`;
+    for (const [offset, count, next] of [
+      [0, 100, 100],
+      [100, 100, 200],
+      [200, 50, null],
+      [300, 0, null],
+    ] as const) {
+      const result = await runToolContract(
+        queryTool,
+        { canvas_id: handle.canvas_id, sql, limit: 100, offset },
+        options(),
+      );
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ returnedCount: count, next_offset: next });
+      const parsed = queryTool.output.parse(result.structuredContent);
+      expect(parsed.rows).toHaveLength(count);
+      for (const [index, row] of parsed.rows.entries())
+        expect(row).toEqual({ row_id: offset + index, wide: 'x'.repeat(1000) });
+      expect(text(result.content)).toContain(text(await queryTool.format!(parsed)));
+      if (count) expect(text(result.content)).toContain('x'.repeat(1000));
+    }
+    const result = await runToolContract(
+      queryTool,
+      { canvas_id: handle.canvas_id, sql: "SELECT repeat('x', 80001) AS huge" },
+      options(),
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ rows: [{ huge: 'x'.repeat(80001) }] });
+    expect(text(result.content)).toContain('x'.repeat(80001));
+  });
   it('preserves nested query JSON once while linking every nested URL', async () => {
     const result = await runToolContract(
       queryTool,
@@ -213,6 +463,8 @@ describe('dataframe public contracts', () => {
       limitNotice: expect.stringContaining('500'),
     });
     expect(text(empty.content)).toContain('effectiveLimit');
+    expect(text(empty.content)).toContain('No rows remain at offset 2');
+    expect(text(empty.content)).not.toContain('No rows match');
   });
   it('recovers every metadata collection for a 100-county panel on both wire surfaces without refetch', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -302,7 +554,8 @@ describe('dataframe public contracts', () => {
     for (const args of [
       { canvas_id: base.canvas_id, metadata_field: 'areas' },
       { ...base, metadata_field: 'areas', metadata_offset: -1 },
-      { ...base, metadata_field: 'areas', metadata_limit: 101 },
+      { ...base, metadata_field: 'areas', metadata_limit: 0 },
+      { ...base, metadata_field: 'areas', metadata_limit: 1.5 },
     ] as const) {
       const invalid = await runToolContract(describeTool, args, options());
       expect(invalid.isError).toBe(true);
@@ -372,7 +625,6 @@ describe('dataframe public contracts', () => {
     ['invalid_sql', 'SELECT ('],
     ['sql_execution_error', `SELECT CAST('not an integer' AS INTEGER)`],
     ['sql_read_only', 'SELECT * FROM information_schema.tables'],
-    ['query_row_too_large', "SELECT repeat('x', 40001) AS huge"],
   ])('returns declared %s recovery with the same reason on both surfaces', async (reason, sql) => {
     const result = await runToolContract(
       queryTool,
@@ -486,7 +738,7 @@ describe('dataframe public contracts', () => {
       expect(text(result.content)).toContain('MCPB');
     }
   });
-  it('declares metadata overflow recovery on both surfaces without advising smaller projected cells', async () => {
+  it('preserves complete query provenance beyond preview thresholds on both surfaces', async () => {
     const context = createMockContext({ tenantId });
     for (let index = 0; index < 6; index++)
       await dataframeService.withAdmission(context, (stage) =>
@@ -504,19 +756,9 @@ describe('dataframe public contracts', () => {
       { canvas_id: handle.canvas_id, sql: 'SELECT 1' },
       options(),
     );
-    const contract = queryTool.errors?.find(
-      (entry) => String(entry.reason) === 'dataset_too_large',
-    );
-    expect(contract).toBeDefined();
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent).toMatchObject({
-      error: {
-        code: JsonRpcErrorCode.ValidationError,
-        data: { reason: 'dataset_too_large', recovery: { hint: contract?.recovery } },
-      },
-    });
-    expect(text(result.content)).toContain(contract?.recovery);
-    expect(contract?.recovery).toMatch(/new canvas|omit canvas_id/i);
+    expect(result.isError).not.toBe(true);
+    expect(queryTool.output.parse(result.structuredContent).tableMetadata).toHaveLength(7);
+    parity(result);
   });
 });
 

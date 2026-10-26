@@ -180,6 +180,47 @@ describe('atomic analytical admission and retention', () => {
       expect(items).toEqual(full[field]);
     }
   });
+  it('preserves oversized singleton metadata and fixed fields while retaining truthful prefixes', async () => {
+    const full = {
+      areas: [{ name: 'a'.repeat(80001), nested: { id: '00001' } }],
+      fixed: 'f'.repeat(80001),
+    };
+    const staged = await stage(0, ctx(), { kind: 'timeseries', metadata: full });
+    expect(staged.staging?.row_count).toBe(0);
+    expect(staged.metadata).toMatchObject({
+      ...full,
+      metadata_pages: { areas: { total: 1, returned: 1, next_offset: null } },
+    });
+    const page = await service.describe(
+      {
+        canvas_id: staged.staging!.canvas_id,
+        table_name: staged.staging!.table_name,
+        metadata_field: 'areas',
+        metadata_limit: 101,
+      },
+      ctx(),
+    );
+    expect(page.metadata_page).toEqual({
+      field: 'areas',
+      items: full.areas,
+      total: 1,
+      offset: 0,
+      next_offset: null,
+    });
+  });
+  it('charges complete zero-row metadata to retention and releases its bytes on removal', async () => {
+    const full = { fixed: 'm'.repeat(33 * 1024 * 1024) };
+    const retained = (await stage(0, ctx(), { kind: 'timeseries', metadata: full })).staging!;
+    await expect(
+      stage(0, ctx(), { kind: 'timeseries', metadata: full, canvas_id: retained.canvas_id }),
+    ).rejects.toMatchObject({
+      data: { reason: 'staging_capacity_exhausted', earliestExpiry: retained.expires_at },
+    });
+    await service.drop({ canvas_id: retained.canvas_id, table_name: retained.table_name }, ctx());
+    await expect(
+      stage(0, ctx(), { kind: 'timeseries', metadata: full, canvas_id: retained.canvas_id }),
+    ).resolves.toHaveProperty('staging.row_count', 0);
+  });
   it('reuses the most recent owned canvas at the process cap without evicting live tables', async () => {
     const handles = [];
     for (let index = 0; index < 4; index++) handles.push((await stage()).staging!);
@@ -366,10 +407,7 @@ describe('atomic analytical admission and retention', () => {
       first.canvas_id,
     );
   });
-  it('does not allocate on oversized metadata, oversized rows or pre-cancelled work', async () => {
-    await expect(stage(3, ctx(), { metadata: { huge: 'x'.repeat(40_001) } })).rejects.toMatchObject(
-      { data: { reason: 'dataset_too_large', component: 'table_metadata' } },
-    );
+  it('does not allocate on oversized acquired rows or pre-cancelled work', async () => {
     const oversized = rows(1);
     oversized[0]!.name = 'x'.repeat(64 * 1024 * 1024);
     await expect(stage(1, ctx(), { rows: oversized })).rejects.toMatchObject({
@@ -428,23 +466,18 @@ describe('atomic analytical admission and retention', () => {
     await expect(stage(2, ctx('new-failure'), { rows: broken })).rejects.toThrow();
     expect(canvas.countForTenant(ctx('new-failure'))).toBe(0);
   });
-  it('includes StageHandle in the forty-thousand-character non-row metadata budget', async () => {
+  it('retains fixed metadata intact when the staging handle exceeds the preview threshold', async () => {
     const largeMetadata = { note: 'x'.repeat(39_500) };
     expect(JSON.stringify(largeMetadata).length).toBeLessThan(40_000);
-    await expect(stage(3, ctx(), { metadata: largeMetadata })).rejects.toMatchObject({
-      code: JsonRpcErrorCode.ValidationError,
-      data: { reason: 'dataset_too_large' },
-    });
-    expect(canvas.countForTenant(ctx())).toBe(0);
-    const retained = (await stage()).staging!;
-    await expect(
-      stage(3, ctx(), { metadata: largeMetadata, canvas_id: retained.canvas_id }),
-    ).rejects.toMatchObject({ data: { reason: 'dataset_too_large' } });
+    const retained = (await stage(3, ctx(), { metadata: largeMetadata })).staging!;
     expect(
-      (await service.describe({ canvas_id: retained.canvas_id }, ctx())).tables.map(
-        (table) => table.name,
-      ),
-    ).toEqual([retained.table_name]);
+      (
+        await service.describe(
+          { canvas_id: retained.canvas_id, table_name: retained.table_name },
+          ctx(),
+        )
+      ).tables[0]?.metadata,
+    ).toEqual(largeMetadata);
   });
 });
 
@@ -647,7 +680,7 @@ describe('real DuckDB staged data and bounded SQL', () => {
     );
     expect((await service.describe({ canvas_id: handle.canvas_id }, ctx())).tables).toHaveLength(1);
   });
-  it('classifies malformed and failing casts safely and rejects a huge projected cell intact', async () => {
+  it('classifies malformed and failing casts safely and preserves a huge projected cell intact', async () => {
     const handle = (await stage()).staging!;
     const query = (sql: string) =>
       service.query({ canvas_id: handle.canvas_id, sql, limit: 100, offset: 0 }, ctx());
@@ -655,14 +688,14 @@ describe('real DuckDB staged data and bounded SQL', () => {
     await expect(
       query(`SELECT CAST(name AS INTEGER) FROM ${handle.table_name}`),
     ).rejects.toMatchObject({ data: { reason: 'sql_execution_error' } });
-    await expect(query("SELECT repeat('x', 40001) AS huge")).rejects.toMatchObject({
-      data: { reason: 'query_row_too_large' },
+    await expect(query("SELECT repeat('x', 40001) AS huge")).resolves.toMatchObject({
+      rows: [{ huge: 'x'.repeat(40001) }],
     });
     expect(
       (await query(`SELECT TRY_CAST(name AS INTEGER) AS n FROM ${handle.table_name}`)).rows,
     ).toEqual([{ n: null }, { n: null }, { n: null }]);
   });
-  it('bounds aggregate query tableMetadata to forty thousand characters independently of the full envelope', async () => {
+  it('preserves aggregate query tableMetadata beyond the former preview threshold', async () => {
     const provenance = { credit: 'x'.repeat(7_000) };
     const first = (await stage(3, ctx(), { metadata: { provenance } })).staging!;
     for (let index = 1; index < 6; index++)
@@ -677,10 +710,7 @@ describe('real DuckDB staged data and bounded SQL', () => {
         { canvas_id: first.canvas_id, sql: 'SELECT 1 AS value', limit: 1, offset: 0 },
         ctx(),
       ),
-    ).rejects.toMatchObject({
-      code: JsonRpcErrorCode.ValidationError,
-      data: { reason: 'dataset_too_large' },
-    });
+    ).resolves.toMatchObject({ rows: [{ value: 1 }], tableMetadata: expectedMetadata });
   });
   it('cancels an actual query and permits a subsequent query on the same canvas', async () => {
     const handle = (await stage()).staging!;
@@ -740,13 +770,50 @@ describe('real DuckDB staged data and bounded SQL', () => {
       ),
     ).resolves.toMatchObject({ rows: [{ n: 2 }] });
   }, 10_000);
-  it('refuses disabled analytical staging actionably while inline output still works', async () => {
+  it('returns complete inline output with analytics disabled while explicit tokens still fail', async () => {
     setCanvas(undefined);
     expect(await stage(1)).toMatchObject({ staging: null });
-    await expect(stage()).rejects.toMatchObject({
+    await expect(stage()).resolves.toMatchObject({ rows: rows(3), staging: null });
+    const wide = rows(201).map((row) => ({ ...row, name: 'w'.repeat(1000) }));
+    const full = {
+      summary: Array.from({ length: 101 }, (_, index) => ({ index, value: 'm'.repeat(1000) })),
+    };
+    await expect(stage(201, ctx(), { rows: wide, metadata: full })).resolves.toMatchObject({
+      rows: wide,
+      staging: null,
+    });
+    await expect(stage(1, ctx(), { canvas_id: 'missing000' })).rejects.toMatchObject({
       code: JsonRpcErrorCode.ConfigurationError,
       message: expect.stringContaining('CANVAS_PROVIDER_TYPE=duckdb'),
       data: { reason: 'canvas_unavailable' },
     });
+  });
+  it('does not hide invalid, foreign or expired explicit tokens behind small inline success', async () => {
+    const handle = (await stage()).staging!;
+    await expect(stage(1, ctx('foreign'), { canvas_id: handle.canvas_id })).rejects.toMatchObject({
+      data: { reason: 'canvas_not_found' },
+    });
+    await expect(stage(1, ctx(), { canvas_id: 'missing000' })).rejects.toMatchObject({
+      data: { reason: 'canvas_not_found' },
+    });
+    clock += 604_800_001;
+    await expect(stage(1, ctx(), { canvas_id: handle.canvas_id })).rejects.toMatchObject({
+      data: { reason: 'canvas_not_found' },
+    });
+  });
+  it('rejects cancellation arriving as explicit-token inline acquisition resolves', async () => {
+    const handle = (await stage()).staging!;
+    const controller = new AbortController();
+    const context = createMockContext({ tenantId: 'canvas-test', signal: controller.signal });
+    const acquire = canvas.acquire.bind(canvas);
+    vi.spyOn(canvas, 'acquire').mockImplementation(async (...args) => {
+      const instance = await acquire(...args);
+      controller.abort();
+      return instance;
+    });
+    await expect(stage(1, context, { canvas_id: handle.canvas_id })).rejects.toMatchObject({
+      code: JsonRpcErrorCode.RequestCancelled,
+    });
+    expect((await service.describe({ canvas_id: handle.canvas_id }, ctx())).tables).toHaveLength(1);
   });
 });

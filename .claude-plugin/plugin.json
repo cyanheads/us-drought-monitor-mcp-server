@@ -13,6 +13,14 @@
   "license": "Apache-2.0",
   "keywords": ["mcp", "mcp-server", "model-context-protocol", "ai-agents", "ai-tools", "typescript", "cyanheads", "bun", "stdio", "streamable-http", "drought-monitor", "hydrology", "duckdb", "drought", "usdm", "dsci", "climate", "agriculture", "water-resources"],
   "userConfig": {
+    "DROUGHT_CLAMP_LIMITS": {
+      "type": "string",
+      "title": "Clamp page limits",
+      "description": "Clamp oversized positive page limits; false enforces advertised maxima.",
+      "sensitive": false,
+      "required": false,
+      "default": "true"
+    },
     "DROUGHT_DATAFRAME_DROP_ENABLED": {
       "type": "string",
       "title": "Enable table removal",
@@ -36,6 +44,7 @@
       "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
+        "DROUGHT_CLAMP_LIMITS": "${user_config.DROUGHT_CLAMP_LIMITS}",
         "DROUGHT_DATAFRAME_DROP_ENABLED": "${user_config.DROUGHT_DATAFRAME_DROP_ENABLED}",
         "MCP_LOG_LEVEL": "${user_config.MCP_LOG_LEVEL}"
       }

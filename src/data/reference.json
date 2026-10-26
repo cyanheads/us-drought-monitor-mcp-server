@@ -1,104 +1,111 @@
 {
   "schemaVersion": 2,
-  "bundleVersion": "2026-10-24-2026-10-20",
+  "bundleVersion": "2026-10-26-2026-10-20",
   "sourceMetadata": [
     {
       "url": "https://www2.census.gov/geo/docs/reference/state.txt",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
       "sha256": "bea4e03f71a1fa0045ae732aabad11fa541e5932b071c2369bb0d325e8cba5a0",
       "recordCount": 52,
       "vintage": "Census state codes"
     },
     {
       "url": "https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
       "sha256": "9f6e5f6eb6ac2f5e9a36d5fd01dec77991bddc75118f748a069441a4782970d6",
       "recordCount": 3221,
       "vintage": "Census 2020"
     },
     {
-      "url": "https://usdmdataservices.unl.edu/api/CountyStatistics/GetDSCI?aoi=AL,AK,AZ,AR,CA,CO,CT,DE,DC,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY,PR&startdate=10/10/2026&enddate=10/24/2026",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "url": "https://usdmdataservices.unl.edu/api/CountyStatistics/GetDSCI?aoi=AL,AK,AZ,AR,CA,CO,CT,DE,DC,FL,GA,HI,ID,IL,IN,IA,KS,KY,LA,ME,MD,MA,MI,MN,MS,MO,MT,NE,NV,NH,NJ,NM,NY,NC,ND,OH,OK,OR,PA,RI,SC,SD,TN,TX,UT,VT,VA,WA,WV,WI,WY,PR&startdate=10/12/2026&enddate=10/26/2026",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
       "sha256": "6453ca1ae6eac81057e666203d1edeea4192ec1e60a39258277e029a88505fe9",
       "recordCount": 3222,
       "vintage": "2026-10-20"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?tribal",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "0b88da067f95779f94a688e4bf951c5531db19bbf397051a4d778cb1e5027dcc",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "213bab1e6788adbbd41f2c5b49a9560ad57cc83677e91de74e5928dc6ae709ea",
       "recordCount": 323,
-      "vintage": "USDM AOI 2026-10-24"
+      "vintage": "USDM AOI 2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?climdiv",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "577408db6b6b5d1e9dc6cd248b3b7905100e6f01d763b8ea3e79df8ae4413927",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "234dfcb77c92aaeedd079f421240c89e2c135278d1c3c4a00119bca56a118e3f",
       "recordCount": 357,
-      "vintage": "USDM AOI 2026-10-24"
+      "vintage": "USDM AOI 2026-10-26"
+    },
+    {
+      "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?rfc",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "baf9101077035a7f65f39187796b1be17419d9082f71f0b5c2fe256cf5798161",
+      "recordCount": 13,
+      "vintage": "USDM AOI 2026-10-26"
     },
     {
       "url": "https://psl.noaa.gov/data/usclimdivs/",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
       "sha256": "a4c97c2769b765490c5a3c8db7b9d8dccf864b46625ec1ab5923f89c654e516f",
       "recordCount": 48,
       "vintage": "NOAA climate division state codes"
     },
     {
       "url": "https://usdmdataservices.unl.edu/api/ClimateDivisionStatistics/GetDSCI?aoi=4901&startdate=10/20/2026&enddate=10/20/2026",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
       "sha256": "aa25f8f0ae7e67208baafb380f33566a093e55a9a16b2ecfe9abc0791d203511",
       "recordCount": 1,
       "vintage": "USDM climate state mapping 2026-10-20"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc2",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "95ccf81bb72482c95b38d34bf1db18f6d7ecc66066caebdeb1f0f018f274759b",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "a99ba5ba36b1daf0108e89a0fafeb35059059ba2e3966141032caaba3eb275ae",
       "recordCount": 21,
-      "vintage": "USDM AOI 2026-10-24"
+      "vintage": "USDM AOI 2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc4",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "7aa07f91dc4663525a2c8df5bf37acaba3bf8bb062f2098e15b13971f7f80404",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "08cfc9760f2fb25f0cf6ccbe7e6d81da0d6553078841b4a83b980fbe9f0c1197",
       "recordCount": 219,
-      "vintage": "USDM AOI 2026-10-24"
+      "vintage": "USDM AOI 2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc6",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "2d481cdf64ec7a93b716c49556b72502b0ea3d33cda79f7d64c7b10d6a856be1",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "cacfe14e4e62909b81faf7aa9eac9504be5e29a56cd9d88ff09347c01dd3914e",
       "recordCount": 383,
-      "vintage": "USDM AOI 2026-10-24"
+      "vintage": "USDM AOI 2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/DmData/DataDownload/AoiValues.aspx?huc8",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "5303706278b0dbf70ff6a25792e531fc43472d3d21a80cc06767568194fa50d1",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "64840eaaf2c221135b582785e6daf4654923b03856d66bbbd6af252761bb04c0",
       "recordCount": 2293,
-      "vintage": "USDM AOI 2026-10-24"
+      "vintage": "USDM AOI 2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/About/AbouttheData/DroughtClassification.aspx",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "e68f5fbcfea823134cac1f5e5c139cbfe3b6fa7be63278c8ea677d4cd91f7ea5",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "db7418c8631ca1dea913a51254ea485cbbd1705cc54826819a4b8d5e060681ae",
       "recordCount": 1,
-      "vintage": "2026-10-24"
+      "vintage": "2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/About/AbouttheData/DSCI.aspx",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "1b934d1a6d96e1afac7b8aba85e4002456d01e010833fbe6f19b42ab610f507e",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "def947e34347bdcc175e13acd715ea95d38241d73a390c8af5e44bdf73480558",
       "recordCount": 1,
-      "vintage": "2026-10-24"
+      "vintage": "2026-10-26"
     },
     {
       "url": "https://droughtmonitor.unl.edu/About/Permission.aspx",
-      "fetchedAt": "2026-10-24T07:34:50.775Z",
-      "sha256": "55da3ecf67b3e4ddddee7a44981c723113463908b9c2a47ab51eb08304e2e9d8",
+      "fetchedAt": "2026-10-26T17:40:18.490Z",
+      "sha256": "811ccec58c8b4ce12004054844a9d0c3240bba15170ec0f7929edc2ad88a36a5",
       "recordCount": 1,
-      "vintage": "2026-10-24"
+      "vintage": "2026-10-26"
     }
   ],
   "states": [
@@ -26788,6 +26795,73 @@
       "sourceVintage": 4
     }
   ],
+  "riverForecastCenters": [
+    {
+      "id": "AKRFC",
+      "name": "Alaska",
+      "sourceVintage": 4
+    },
+    {
+      "id": "ABRFC",
+      "name": "Arkansas Red Basin",
+      "sourceVintage": 4
+    },
+    {
+      "id": "CNRFC",
+      "name": "California Nevada",
+      "sourceVintage": 4
+    },
+    {
+      "id": "CBRFC",
+      "name": "Colorado Basin",
+      "sourceVintage": 4
+    },
+    {
+      "id": "LMRFC",
+      "name": "Lower Mississippi",
+      "sourceVintage": 4
+    },
+    {
+      "id": "MARFC",
+      "name": "Middle Atlantic",
+      "sourceVintage": 4
+    },
+    {
+      "id": "MBRFC",
+      "name": "Missouri Basin",
+      "sourceVintage": 4
+    },
+    {
+      "id": "NCRFC",
+      "name": "North Central",
+      "sourceVintage": 4
+    },
+    {
+      "id": "NERFC",
+      "name": "Northeast",
+      "sourceVintage": 4
+    },
+    {
+      "id": "NWRFC",
+      "name": "Northwest",
+      "sourceVintage": 4
+    },
+    {
+      "id": "OHRFC",
+      "name": "Ohio",
+      "sourceVintage": 4
+    },
+    {
+      "id": "SERFC",
+      "name": "Southeast",
+      "sourceVintage": 4
+    },
+    {
+      "id": "WGRFC",
+      "name": "West Gulf",
+      "sourceVintage": 4
+    }
+  ],
   "huc": [
     {
       "id": "01",
@@ -44291,6 +44365,6 @@
     "Census 2020; USDM 2026-10-20",
     "Census 2020",
     "USDM 2026-10-20",
-    "USDM AOI 2026-10-24"
+    "USDM AOI 2026-10-26"
   ]
 }

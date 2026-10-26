@@ -12,6 +12,7 @@ export const AreaTypeSchema = z.enum([
   'huc',
   'tribal',
   'climate_division',
+  'river_forecast_center',
 ]);
 /** Supported HUC widths. */
 export const HucLevelSchema = z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8)]);
@@ -50,6 +51,13 @@ export const GeographySchema = z
       .describe('Exact climate division selector.'),
     z
       .object({
+        areaType: z.literal('river_forecast_center').describe('River Forecast Center geography.'),
+        aoi,
+      })
+      .strict()
+      .describe('Bundled RFC code or exact name.'),
+    z
+      .object({
         areaType: z.literal('huc').describe('Watershed geography.'),
         aoi,
         hucLevel: HucLevelSchema.describe('Exact HUC identifier width.'),
@@ -84,6 +92,13 @@ export const ProvenanceSchema = z.object({
   credit: z.string().describe('USDM attribution.'),
   dsciCitation: z.string().describe('DSCI citation.'),
   dsciExperimental: z.literal(true).describe('DSCI is an experimental index.'),
+  populationInterpretation: z
+    .object({
+      methodologyUrl: z.string().describe('Official population estimation methodology.'),
+      caveat: z.string().describe('Population assumptions and precision limitations.'),
+    })
+    .optional()
+    .describe('Present when the workflow includes a supported population metric.'),
 });
 export type AreaType = z.infer<typeof AreaTypeSchema>;
 export type HucLevel = z.infer<typeof HucLevelSchema>;
@@ -139,6 +154,12 @@ export const CREDIT =
 /** Experimental DSCI citation. */
 export const DSCI_CITATION =
   'Akyuz, F. A. 2017. Drought Severity and Coverage Index. United States Drought Monitor.';
+/** Official interpretation of population exposure, without an inferred census vintage. */
+export const POPULATION_INTERPRETATION = {
+  methodologyUrl: 'https://droughtmonitor.unl.edu/About/AbouttheData/PopulationStatistics.aspx',
+  caveat:
+    'Population figures are rough census-based estimates assuming uniform population within each county and no population change since the census. Their precision is artificial; they are not exact contemporary headcounts.',
+} as const;
 /** Construct a deduplicated provenance envelope. */
 export function provenance(
   sourceUrls: string[],

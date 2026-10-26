@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { addDays } from '@/services/drought/dates.js';
 import { renderFields, renderScalar } from '@/services/drought/format.js';
 import { renderWorkflow } from '@/services/drought/workflow-format.js';
 
@@ -129,6 +130,59 @@ afterEach(() => {
 });
 
 describe('drought public consumption paths', () => {
+  it('returns complete producer results through the production disabled-provider path', async () => {
+    const dates: string[] = [];
+    for (let date = '2000-01-04'; date <= latest; date = addDays(date, 7)) dates.push(date);
+    const definitions = await tools((url) =>
+      url.pathname === '/api/USStatistics/GetDSCI'
+        ? [{ mapDate: latest, name: 'CONUS', dsci: 1 }]
+        : dates.map((mapDate) => ({ ...observation, mapDate })),
+    );
+    const result = await runToolContract(definitions.timeseries, {
+      areas: [area],
+      startDate: dates[0]!,
+      endDate: latest,
+    });
+    expect(result.isError).not.toBe(true);
+    const parsed = definitions.timeseries.output.parse(result.structuredContent);
+    expect(parsed.rows).toHaveLength(dates.length);
+    expect(parsed.staging).toBeNull();
+    expect(parsed.rows.map((row) => row.mapDate)).toEqual(dates);
+    expect(tableRows(markdownHtml(text(result)))).toHaveLength(dates.length);
+  });
+  it('returns exact wide duration pages with unchanged cached continuation on both surfaces', async () => {
+    const rows = Array.from({ length: 201 }, (_, index) => ({
+      fips: `01${String(index).padStart(3, '0')}`,
+      county: `County ${index} ${'w'.repeat(1000)}`,
+      state: 'AL',
+      nonConsecutiveWeeks: 1,
+    }));
+    const definitions = await tools((url) =>
+      url.pathname === '/api/USStatistics/GetDSCI'
+        ? [{ mapDate: latest, name: 'CONUS', dsci: 1 }]
+        : rows,
+    );
+    const input = {
+      ...range,
+      states: ['AL'],
+      minCategory: 'D1' as const,
+      minWeeks: 1,
+      mode: 'non_consecutive' as const,
+      limit: 200,
+    };
+    const first = await runToolContract(definitions.weeks, input);
+    const page = definitions.weeks.output.parse(first.structuredContent);
+    expect(page.rows).toEqual(rows.slice(0, 200));
+    expect(tableRows(markdownHtml(text(first)))).toEqual(rows.slice(0, 200));
+    const last = await runToolContract(definitions.weeks, { ...input, cursor: page.nextCursor! });
+    expect(definitions.weeks.output.parse(last.structuredContent)).toMatchObject({
+      rows: [rows[200]],
+      totalCount: 201,
+      nextCursor: null,
+    });
+    expect(tableRows(markdownHtml(text(last)))).toEqual([rows[200]]);
+    expect(definitions.fetcher).toHaveBeenCalledTimes(2);
+  });
   it('advertises date syntax while retaining blank optional dates and rejecting impossible calendars', async () => {
     const definitions = await tools();
     expect(definitions.current.input.safeParse({ area, date: '' }).success).toBe(true);
@@ -182,6 +236,8 @@ describe('drought public consumption paths', () => {
       minWeeks: 1,
       limit: 201,
     });
+    expect(comparison.structuredContent).toMatchObject({ staging: null });
+    expect(text(comparison)).not.toContain('staged table');
     for (const result of [comparison, duration]) {
       expect(result.isError).not.toBe(true);
       expect(result.structuredContent).toMatchObject({
@@ -287,8 +343,6 @@ describe('drought public consumption paths', () => {
     for (const result of results) {
       expect(text(result)).toContain(latest);
       expect(text(result)).toContain('provenance');
-      expect(text(result).length).toBeLessThanOrEqual(80_000);
-      expect(JSON.stringify(result.structuredContent).length).toBeLessThanOrEqual(80_000);
     }
     expect(text(current)).toContain('193');
     expect(text(timeseries)).toContain('null');

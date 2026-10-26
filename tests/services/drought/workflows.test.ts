@@ -881,10 +881,12 @@ describe('authoritative weeks and immutable pagination', () => {
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it('rejects a single oversized record rather than returning a nonadvancing cursor', async () => {
+  it('returns a single oversized record intact without a nonadvancing cursor', async () => {
     const { service } = fixture(() => [{ ...streaks[0], county: 'X'.repeat(40_001) }]);
-    await expect(service.weeks(input, signal())).rejects.toMatchObject({
-      data: { reason: 'dataset_too_large' },
+    await expect(service.weeks(input, signal())).resolves.toMatchObject({
+      rows: [{ county: 'X'.repeat(40_001) }],
+      nextCursor: null,
+      hasMore: false,
     });
   });
   it('returns empty unknown numeric counties using their valid state prefix', async () => {

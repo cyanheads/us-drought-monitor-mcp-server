@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.3-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/us-drought-monitor-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/us-drought-monitor-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/us-drought-monitor-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.3-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/us-drought-monitor-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.4.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/us-drought-monitor-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/us-drought-monitor-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -29,7 +29,9 @@
 
 ## Overview
 
-Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor.unl.edu/) (USDM) data services. Snapshot an area's current or dated severity, follow weekly history, rank states and counties, and count county weeks in drought across national, state, county, HUC watershed, tribal and climate-division geographies. Large results stage as tables for read-only SQL. No API key is required.
+Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor.unl.edu/) (USDM) data services. Snapshot an area's current or dated severity, follow weekly history, rank states and counties, and count county weeks in drought across national, state, county, HUC watershed, tribal, climate-division and River Forecast Center geographies. Large results stage as tables for read-only SQL. No API key is required.
+
+The [caller guide](./skills/us-drought-monitor-guide/SKILL.md) covers interpretation and complete analytical retrieval; the server also serves it as a skill resource.
 
 ### Tools
 
@@ -48,8 +50,8 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 
 ### `drought_list_reference` <sub>tool</sub>
 
-- `topic`: `categories`, `dsci`, `area_types`, `coverage`, `states`, `counties`, `tribal`, `climate_divisions` or `huc`; `nameContains` token filter, `state` for counties or climate divisions, `hucLevel` (2, 4, 6 or 8) required for `huc`. Optional `parentHuc` selects descendants of an existing shorter HUC at level 2, 4 or 6
-- Up to 200 records per page (default 50), continued via `nextCursor` with unchanged filters; `totalCount` counts every match
+- `topic`: `categories`, `dsci`, `area_types`, `coverage`, `states`, `counties`, `tribal`, `climate_divisions`, `river_forecast_centers` or `huc`; `nameContains` token filter, `state` for counties or climate divisions, `hucLevel` (2, 4, 6 or 8) required for `huc`. Optional `parentHuc` selects descendants of an existing shorter HUC at level 2, 4 or 6
+- Default 25 records per page, clamped to 200; continued via `nextCursor` with unchanged filters. Explicit pages return the effective count, fewer only at exhaustion; `totalCount` counts every match
 - Records keep leading-zero identifiers, climate-state postal codes and source vintages; `bundleVersion` and topic-dependent `sourceMetadata` (source URLs and SHA-256 hashes) date the offline bundle. `provenance.sourceUrls` uses the same source selection
 
 ---
@@ -59,6 +61,7 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 - One `area` (`areaType` + `aoi`, plus `hucLevel` for HUC; `aoi` takes an exact identifier or exact state or `"County Name, ST"` name); unique suffix-free county names such as `"King, WA"` are accepted after exact-name matching. Optional `date` defaults to the latest published map; `us` selects both CONUS and Total
 - Each snapshot carries cumulative and categorical area percent, cumulative square miles, cumulative population (`populationStatus` `unsupported` outside US/state/county), `dsci`, and `dsciChange4Weeks` / `dsciChange52Weeks` against exactly 28 and 364 days earlier, each with an `available` / `missing` / `before_coverage` status
 - A date outside published coverage returns `found: false` with `guidance`
+- River Forecast Centers use `areaType: "river_forecast_center"` with an official code (for example `CBRFC`) or exact name (`Colorado Basin`); area percentages, square miles and DSCI are supported. Unknown RFCs fail local reference resolution
 
 ---
 
@@ -83,7 +86,7 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 - `startDate`, `endDate`, `minCategory` (D0–D4) and `minWeeks` required; `mode` `consecutive` (default) or `non_consecutive`; `states` or one `county`, never both, or neither for nationwide counties
 - Rows give `fips`, `county`, `state`, and either `startDate` / `endDate` / `consecutiveWeeks` or `nonConsecutiveWeeks`; a county qualifies when any part of it reaches the category or worse, and streaks are bounded by the requested window
 - Consecutive `startMayExtendEarlier` and `endMayContinue` flag boundaries touching the effective window; they express uncertainty about continuation. The Monday end is compared with the final map Tuesday plus six days. Non-consecutive rows omit these flags
-- Up to 200 rows per page (default 50); `nextCursor` stays valid five minutes with unchanged filters. Counts are duration statistics, not program eligibility
+- Default 25 rows per page, clamped to 200; `nextCursor` stays valid five minutes with unchanged filters. Explicit pages return the effective count, fewer only at exhaustion. Counts are duration statistics, not program eligibility
 
 ---
 
@@ -91,14 +94,15 @@ Weekly drought statistics from the [U.S. Drought Monitor](https://droughtmonitor
 
 - `canvas_id` from a staging response; tables with SQL column types, row counts and expiry
 - With `table_name`, that table's full producer metadata: requested and effective ranges, units, bucket-column mapping, missing data, summaries and provenance
-- Oversized metadata returns bounded first pages with `metadata_pages`. To read a complete retained collection, supply `table_name`, `metadata_field` (`areas`, `summary`, `missingAreas`, `missingObservations`), `metadata_offset` and `metadata_limit` (1–100, default 20); follow `metadata_page.next_offset` until null. Pages read the same snapshot without fetching upstream again
+- Oversized metadata returns first-page prefixes with `metadata_pages`. To read a complete retained collection, supply `table_name`, `metadata_field` (`areas`, `summary`, `missingAreas`, `missingObservations`), `metadata_offset` and `metadata_limit` (default 20, clamped to 100); follow `metadata_page.next_offset` until null. Explicit pages return the effective count, fewer only at exhaustion, from the same snapshot without fetching upstream again
 
 ---
 
 ### `drought_dataframe_query` <sub>tool</sub>
 
 - `canvas_id` plus one DuckDB read expression with an optional terminal semicolon; writes, multiple statements, external reads and system catalogs are refused
-- `limit` (default 100, clamped to 500) and `offset` up to 250,000; continue `next_offset` with identical SQL until null. `SELECT * FROM <table_name> ORDER BY row_id` returns the original rows in order
+- A column named `current_schema` must be table-qualified (`t.current_schema`); unqualified references are refused because DuckDB can bind them as an engine-settings function
+- `limit` (default 25, clamped to 500) and `offset` up to 250,000; continue `next_offset` with identical SQL until null. Explicit pages return the effective count, fewer only at exhaustion, regardless of cell width. `SELECT * FROM <table_name> ORDER BY row_id` returns the original rows in order
 - `countIsExact` is true only when one page from offset 0 holds every row; use `SELECT COUNT(*)` for totals
 
 ---
@@ -117,7 +121,7 @@ USDM-specific:
 - Fixed-origin client for the USDM data services (`usdmdataservices.unl.edu`): no key, at most 64 upstream requests and 64 MiB per call, three concurrent upstream requests, one retry that honors `Retry-After`
 - Dates snap to the containing Tuesday–Monday map week; coverage starts 2000-01-04, and the latest map (usually published Thursday) is discovered from upstream
 - Cumulative buckets (`d1_d4` = D1 or worse) overlap; categorical buckets (`d1_only`) are exclusive. DSCI is upstream's experimental 0–500 index, never recomputed
-- Offline geography bundle: 52 states and jurisdictions, 3,230 counties (Connecticut planning regions included), 323 tribal areas, 357 climate divisions and 2,916 HUCs, refreshed by `scripts/update-reference-data.ts`
+- Offline geography bundle: 52 states and jurisdictions, 3,230 counties (Connecticut planning regions included), 323 tribal areas, 357 climate divisions, 13 River Forecast Centers and 2,916 HUCs, refreshed by `scripts/update-reference-data.ts`
 - Staged tables live in DuckDB with a 30-minute sliding lifetime renewed by queries; canvas tokens are tenant-scoped, shareable capabilities, so treat them as credentials
 - At the four-canvas process cap, omitted-token staging reuses the tenant's most recently used service-owned canvas with a free slot (eight tables per canvas). Explicitly supplied canvases remain caller-owned; live tables are never evicted. `staging_capacity_exhausted` advises token reuse or expiry, while `staging_busy` advises waiting for active work. The two-workflow admission bound applies before fetching, including inline reads
 - Connecticut's eight legacy county FIPS remain discoverable but are omitted from comparison populations. Their empty observation lookups explain that USDM serves Connecticut by planning region; call `drought_list_reference` with `topic: counties`, `state: CT`. Counties are never mapped onto different planning-region boundaries; `currentUsdm: false` alone is not a historical-coverage rule
@@ -126,126 +130,48 @@ USDM-specific:
 Agent-friendly output:
 
 - Reference records, query rows and describe columns use compact tables with JSON cells; empty cells distinguish absent optional fields from null values. Metadata, nested values and clickable URLs remain complete on both response surfaces
-- Positive integer page/preview limits above 200 (references, comparisons, duration) or 500 (SQL) are clamped; `effectiveLimit` and `limitNotice` disclose the result. Continuation retains every record. Nonpositive and fractional limits are rejected
+- Positive integer page/preview limits above 200 (references, comparisons, duration), 500 (SQL), or 100 (metadata) are clamped; `effectiveLimit` and `limitNotice` disclose the result. Set `DROUGHT_CLAMP_LIMITS=false` to advertise and enforce these maxima instead. Clamps emit a request log and the `drought.limit_clamps` counter. Continuation retains every record. Nonpositive and fractional limits are rejected; count ceilings do not bound response bytes
 - Date inputs advertise `YYYY-MM-DD` and validate real calendar dates; blank optional snapshot and comparison dates retain their defaults. A duration threshold beyond its window advises lowering `minWeeks` or widening the dates
 - Provenance on every response: `sourceUrls`, `retrievedAt`, the USDM `credit` line and the experimental-DSCI citation
+- Supported population snapshots and population series add `provenance.populationInterpretation`, retained through dataframe describe/query: [USDM population figures](https://droughtmonitor.unl.edu/About/AbouttheData/PopulationStatistics.aspx) are rough census-based estimates assuming uniform population within counties, with artificial precision rather than exact contemporary headcounts. Source values remain unchanged; no census vintage is inferred
 - Missing data stays explicit: nulls with `dsciStatus` / `populationStatus`, `missingAreas`, `missingObservations` date runs and `excludedAreas`, never zero-filled
 - Range and identity echo: `requestedRange` / `effectiveRange`, `latestMapDate`, `resolvedAreas`, and staging handles that name `drought_dataframe_describe` and `drought_dataframe_query`
 
 ## Getting started
 
-### Public Hosted Instance
+Connect to the hosted instance:
 
-A public instance is available at `https://us-drought-monitor.caseyjhand.com/mcp` — no installation required. Point any MCP client at it via Streamable HTTP:
-
-```json
-{
-  "mcpServers": {
-    "us-drought-monitor-mcp-server": {
-      "type": "streamable-http",
-      "url": "https://us-drought-monitor.caseyjhand.com/mcp"
-    }
-  }
-}
+```sh
+claude mcp add --transport http us-drought-monitor-mcp-server https://us-drought-monitor.caseyjhand.com/mcp
 ```
 
-### Self-Hosted / Local
+Or run it locally:
 
-Add the following to your MCP client configuration file.
-
-```json
-{
-  "mcpServers": {
-    "us-drought-monitor-mcp-server": {
-      "type": "stdio",
-      "command": "bunx",
-      "args": ["@cyanheads/us-drought-monitor-mcp-server@latest"],
-      "env": {
-        "MCP_TRANSPORT_TYPE": "stdio",
-        "MCP_LOG_LEVEL": "info"
-      }
-    }
-  }
-}
+```sh
+claude mcp add us-drought-monitor-mcp-server -- npx -y @cyanheads/us-drought-monitor-mcp-server
 ```
 
-Or with npx (no Bun required):
+For other clients, add this to the MCP configuration file:
 
 ```json
 {
   "mcpServers": {
     "us-drought-monitor-mcp-server": {
-      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server@latest"],
-      "env": {
-        "MCP_TRANSPORT_TYPE": "stdio",
-        "MCP_LOG_LEVEL": "info"
-      }
+      "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"]
     }
   }
 }
 ```
 
-Or with Docker:
-
-```json
-{
-  "mcpServers": {
-    "us-drought-monitor-mcp-server": {
-      "type": "stdio",
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT_TYPE=stdio", "ghcr.io/cyanheads/us-drought-monitor-mcp-server:latest"]
-    }
-  }
-}
-```
-
-For Streamable HTTP, set the transport and start the server:
-
-```sh
-MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
-# Server listens at http://localhost:3010/mcp
-```
-
-### Prerequisites
-
-- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
-- No API key or account; the USDM data services are public.
-- Staging and SQL need native DuckDB, which the npm and Docker installs include. The Claude Desktop `.mcpb` bundle fixes `CANVAS_PROVIDER_TYPE=none`: references, snapshots and inline results work, and anything that must stage returns `canvas_unavailable`.
-
-### Installation
-
-1. **Clone the repository:**
-
-```sh
-git clone https://github.com/cyanheads/us-drought-monitor-mcp-server.git
-```
-
-2. **Navigate into the directory:**
-
-```sh
-cd us-drought-monitor-mcp-server
-```
-
-3. **Install dependencies:**
-
-```sh
-bun install
-```
-
-4. **Configure environment:**
-
-```sh
-cp .env.example .env
-# optional: set DROUGHT_DATAFRAME_DROP_ENABLED or canvas limits
-```
+No API key or account is required. Set `DROUGHT_DATAFRAME_DROP_ENABLED=true` to expose table removal. For Docker or a source build, see [Running the server](#running-the-server).
 
 ## Configuration
 
 | Variable | Description | Default |
 |:---|:---|:---|
 | `DROUGHT_DATAFRAME_DROP_ENABLED` | Expose `drought_dataframe_drop` for disposable staged tables. | `false` |
+| `DROUGHT_CLAMP_LIMITS` | Clamp oversized positive limits; `false` advertises and enforces maxima. | `true` |
 | `CANVAS_PROVIDER_TYPE` | Analytical engine: `duckdb`, or `none` to disable staging and SQL. | `duckdb` |
 | `CANVAS_DEFAULT_MEMORY_LIMIT_MB` | Memory limit per canvas engine. | `128` |
 | `CANVAS_MAX_CANVASES_PER_TENANT` | Provider canvas cap; the server separately admits four live canvases per process. | `4` |
@@ -268,6 +194,18 @@ See [`.env.example`](./.env.example) for every server setting and the common fra
 
 ### Local development
 
+Requires [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
+
+```sh
+git clone https://github.com/cyanheads/us-drought-monitor-mcp-server.git
+cd us-drought-monitor-mcp-server
+bun install
+cp .env.example .env
+# optional: set DROUGHT_DATAFRAME_DROP_ENABLED or canvas limits
+```
+
+Staging and SQL need native DuckDB, included in npm and Docker installs. The portable Claude Desktop `.mcpb` bundle fixes `CANVAS_PROVIDER_TYPE=none`: producers return complete inline results within acquisition limits. Explicit canvas tokens and dataframe operations still require an analytical provider; invalid, expired or foreign tokens never fall back to inline success.
+
 - **Build and run the production version**:
 
   ```sh
@@ -289,11 +227,12 @@ See [`.env.example`](./.env.example) for every server setting and the common fra
 ### Docker
 
 ```sh
-docker build -t us-drought-monitor-mcp-server .
-docker run --rm -p 127.0.0.1:3010:3010 us-drought-monitor-mcp-server
+docker run --rm -p 127.0.0.1:3010:3010 ghcr.io/cyanheads/us-drought-monitor-mcp-server:latest
 ```
 
 The image runs on Bun with native DuckDB, defaults to HTTP on port 3010 in stateless session mode, and logs to `/var/log/us-drought-monitor-mcp-server`. OpenTelemetry peer dependencies are installed by default; build with `--build-arg OTEL_ENABLED=false` to omit them.
+
+To build locally, run `docker build -t us-drought-monitor-mcp-server .`. For stdio clients, use `"command": "docker"` with `"args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT_TYPE=stdio", "ghcr.io/cyanheads/us-drought-monitor-mcp-server:latest"]`.
 
 ## Project structure
 
@@ -302,7 +241,7 @@ The image runs on Bun with native DuckDB, defaults to HTTP on port 3010 in state
 | `src/mcp-server/tools` | Tool definitions (`*.tool.ts`). Eight drought and dataframe tools. |
 | `src/services/drought` | USDM client, geography resolution, map-week dates, workflows, staging and rendering. |
 | `src/services/canvas-accessor.ts` | Access to the framework DataCanvas configured at startup. |
-| `src/config` | Canvas defaults and the opt-in table-removal flag. |
+| `src/config` | Environment loading, canvas defaults, count schemas and clamp telemetry. |
 | `src/data` | Generated geography reference bundle (`reference.json`). |
 | `scripts/update-reference-data.ts` | Maintainer refresh of the reference bundle from official sources. |
 | `tests/` | Unit, contract and integration tests, mirroring the `src/` structure. |

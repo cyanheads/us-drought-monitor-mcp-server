@@ -16,6 +16,7 @@ import {
 } from '../../../services/drought/types.js';
 import { renderWorkflow } from '../../../services/drought/workflow-format.js';
 import {
+  MetadataPagesSchema,
   MissingSchema,
   RangeSchema,
   StageHandleSchema,
@@ -27,7 +28,7 @@ import {
 export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
   title: 'Get weekly drought observations',
   description:
-    'Get weekly drought metrics and experimental DSCI for 1–100 explicit areas sharing one geography type and HUC level. Resolve identifiers with drought_list_reference. Dates select inclusive Tuesday map weeks. Missing values remain null; summaries include every tied peak. Complete large results are staged; use the returned dataframe tools to read every row.',
+    'Get weekly drought metrics and experimental DSCI for 1–100 explicit areas sharing one geography type and HUC level. Resolve identifiers with drought_list_reference. Dates select inclusive Tuesday map weeks. Missing values remain null; summaries include every tied peak. Large results are staged when analytics is enabled; use the returned dataframe tools to read every row and retained metadata page. Without analytics, complete results remain inline within acquisition limits.',
   annotations: { readOnlyHint: true, openWorldHint: true },
   input: z.object({
     areas: z.array(GeographySchema).min(1).max(100).describe('Explicit homogeneous geographies.'),
@@ -40,7 +41,7 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .describe('Last requested calendar date, YYYY-MM-DD.'),
     metric: MetricSchema.default('area_percent').describe(
-      'Measure; population supports US, state and county only.',
+      'Measure; population supports US, state and county only and carries estimation assumptions in provenance.populationInterpretation.',
     ),
     statisticsType: StatisticsTypeSchema.default('cumulative').describe(
       'Overlapping cumulative or exclusive categorical buckets.',
@@ -55,23 +56,9 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
       .string()
       .optional()
       .describe('Coverage guidance for known legacy Connecticut counties.'),
-    metadata_pages: z
-      .record(
-        z.string(),
-        z.object({
-          total: z.number().int().describe('Complete retained collection size.'),
-          returned: z.number().int().describe('Items in this inline first page.'),
-          next_offset: z
-            .number()
-            .int()
-            .nullable()
-            .describe(
-              'Continue with drought_dataframe_describe metadata_field and this offset, or null.',
-            ),
-        }),
-      )
-      .optional()
-      .describe('Present only when complete metadata requires automatic continuation.'),
+    metadata_pages: MetadataPagesSchema.optional().describe(
+      'Present only when complete metadata requires automatic continuation.',
+    ),
     areas: z.array(AreaSchema).describe('Resolved deduplicated areas.'),
     requestedRange: RangeSchema.describe('Original requested dates.'),
     effectiveRange: RangeSchema.nullable().describe('Published coverage intersection.'),
@@ -157,7 +144,7 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     {
       reason: 'dataset_too_large',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'The complete request exceeds bounded acquisition or metadata budgets.',
+      when: 'The complete request exceeds acquisition or retained-data quotas.',
       recovery: 'Narrow dates or areas in drought_get_timeseries and retry the smaller request.',
       thrownBy: 'service',
     },
@@ -172,7 +159,7 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     {
       reason: 'canvas_unavailable',
       code: JsonRpcErrorCode.ConfigurationError,
-      when: 'A complete large result requires an unavailable analytical provider.',
+      when: 'An explicit canvas token requires an unavailable analytical provider.',
       recovery:
         'Use the npm or Docker analytical installation with @duckdb/node-api and CANVAS_PROVIDER_TYPE=duckdb; MCPB supports inline results only.',
       thrownBy: 'service',

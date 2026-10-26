@@ -5,6 +5,7 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { CanvasIdSchema } from '@cyanheads/mcp-ts-core/canvas';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { effectiveLimit, pageLimit } from '../../../config/page-limits.js';
 import { dataframeService } from '../../../services/drought/dataframe-service.js';
 import { droughtService } from '../../../services/drought/drought-service.js';
 import { AreaSchema, ProvenanceSchema } from '../../../services/drought/types.js';
@@ -35,14 +36,7 @@ const shared = {
     .enum(['asc', 'desc'])
     .default('desc')
     .describe('Order by severity or baseline change.'),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .default(20)
-    .describe(
-      'Preview row limit, clamped to 200 with disclosure; complete rankings remain staged.',
-    ),
+  limit: pageLimit(20, 200, 'preview rows'),
   canvas_id: z
     .union([z.literal(''), CanvasIdSchema])
     .optional()
@@ -52,7 +46,7 @@ const shared = {
 export const droughtCompareAreasTool = tool('drought_compare_areas', {
   title: 'Compare drought severity across areas',
   description:
-    'Rank all supported states, or counties within an optional state, on one published map. Omit state for nationwide supported counties. With baselineDate, rank target minus exact baseline; missing sides are excluded explicitly. Equal values share competition rank. limit controls a staged preview, never discards comparable rows.',
+    'Rank all supported states, or counties within an optional state, on one published map. Omit state for nationwide supported counties. With baselineDate, rank target minus exact baseline; missing sides are excluded explicitly. Equal values share competition rank. limit controls a staged preview; without analytics, complete rankings remain inline within acquisition limits.',
   annotations: { readOnlyHint: true, openWorldHint: true },
   input: z.discriminatedUnion('scope', [
     z.object({ scope: z.literal('states').describe('All supported states.'), ...shared }).strict(),
@@ -164,7 +158,7 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     {
       reason: 'dataset_too_large',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'The complete request exceeds acquisition or metadata budgets.',
+      when: 'The complete request exceeds acquisition or retained-data quotas.',
       recovery: 'Narrow county scope to one state in drought_compare_areas and retry.',
       thrownBy: 'service',
     },
@@ -179,7 +173,7 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     {
       reason: 'canvas_unavailable',
       code: JsonRpcErrorCode.ConfigurationError,
-      when: 'A complete ranking requires an unavailable analytical provider.',
+      when: 'An explicit canvas token requires an unavailable analytical provider.',
       recovery:
         'Use the npm or Docker analytical installation with @duckdb/node-api and CANVAS_PROVIDER_TYPE=duckdb; MCPB supports inline results only.',
       thrownBy: 'service',
@@ -210,18 +204,18 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     },
   ],
   async handler(input, ctx) {
-    const limit = Math.min(input.limit, 200);
+    const limit = effectiveLimit(input.limit, 200, 'drought_compare_areas', ctx);
+    const result = await dataframeService.withAdmission(ctx, (stage) =>
+      droughtService.compare({ ...input, limit }, ctx.signal, stage),
+    );
     ctx.enrich({
       effectiveLimit: limit,
       ...(input.limit > limit
         ? {
-            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}; use the staged table for every remaining row.`,
+            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}.${result.staging && result.rows.length < result.comparedCount ? ' Use the staged table for every remaining row.' : ''}`,
           }
         : {}),
     });
-    const result = await dataframeService.withAdmission(ctx, (stage) =>
-      droughtService.compare({ ...input, limit }, ctx.signal, stage),
-    );
     ctx.enrich.total(result.comparedCount);
     if (!result.comparedCount)
       ctx.enrich.notice(

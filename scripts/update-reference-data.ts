@@ -33,7 +33,7 @@ const fetchedAt = new Date().toISOString();
 let fetches = 0;
 async function source(file: string, url: string): Promise<string> {
   if (captures) return readFile(`${captures}/${file}`, 'utf8');
-  if (++fetches > 14) throw new Error('Reference acquisition exceeds 14 public requests');
+  if (++fetches > 15) throw new Error('Reference acquisition exceeds 15 public requests');
   const response = await fetch(url, {
     headers: { Accept: 'application/json' },
     redirect: 'error',
@@ -191,7 +191,7 @@ async function generate(): Promise<void> {
   evidence(currentUrl, currentText, current.length, latest);
   async function aoiRecords(
     topic: string,
-    areaType: 'tribal' | 'climate_division' | 'huc',
+    areaType: 'tribal' | 'climate_division' | 'huc' | 'river_forecast_center',
     width?: 2 | 4 | 6 | 8,
   ): Promise<GeographyRecord[]> {
     const url = `${aoi}${topic}`;
@@ -200,9 +200,13 @@ async function generate(): Promise<void> {
     if (
       rows.some(
         (row) =>
-          !(areaType === 'tribal' ? /^\d{4}[A-Z]$/ : new RegExp(`^\\d{${width ?? 4}}$`)).test(
-            row.id,
-          ),
+          !(
+            areaType === 'river_forecast_center'
+              ? /^[A-Z]{2}RFC$/
+              : areaType === 'tribal'
+                ? /^\d{4}[A-Z]$/
+                : new RegExp(`^\\d{${width ?? 4}}$`)
+          ).test(row.id),
       )
     )
       throw new Error(`Invalid ${topic} identifier width`);
@@ -216,6 +220,7 @@ async function generate(): Promise<void> {
   }
   const tribal = await aoiRecords('tribal', 'tribal');
   const climateDivisions = await aoiRecords('climdiv', 'climate_division');
+  const riverForecastCenters = await aoiRecords('rfc', 'river_forecast_center');
   const mappingUrl = 'https://psl.noaa.gov/data/usclimdivs/';
   const mappingText = await source('climate-mapping.html', mappingUrl);
   const climateStates = new Map<string, string>();
@@ -279,6 +284,7 @@ async function generate(): Promise<void> {
     counties,
     tribal,
     climateDivisions,
+    riverForecastCenters,
     huc,
   });
   const target = fileURLToPath(new URL('../src/data/reference.json', import.meta.url));
@@ -292,6 +298,7 @@ async function generate(): Promise<void> {
       currentCounties: current.length,
       tribal: tribal.length,
       climateDivisions: climateDivisions.length,
+      riverForecastCenters: riverForecastCenters.length,
       huc: Object.fromEntries(
         [2, 4, 6, 8].map((level) => [level, huc.filter((row) => row.hucLevel === level).length]),
       ),

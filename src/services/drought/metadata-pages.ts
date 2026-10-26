@@ -2,8 +2,6 @@
  * @fileoverview Lossless bounded first pages of retained time-series metadata.
  * @module services/drought/metadata-pages
  */
-import { validationError } from '@cyanheads/mcp-ts-core/errors';
-
 /** Metadata collections retrievable from an immutable staged snapshot. */
 export const METADATA_FIELDS = ['areas', 'summary', 'missingAreas', 'missingObservations'] as const;
 export type MetadataField = (typeof METADATA_FIELDS)[number];
@@ -27,11 +25,7 @@ export function boundedMetadata(
     const field = METADATA_FIELDS.filter(
       (field) => Array.isArray(result[field]) && (result[field] as unknown[]).length > 1,
     ).sort((a, b) => JSON.stringify(result[b]).length - JSON.stringify(result[a]).length)[0];
-    if (!field)
-      throw validationError(
-        'One metadata item or fixed response metadata exceeds its budget; narrow the requested areas or dates.',
-        { reason: 'dataset_too_large', component: 'response_metadata' },
-      );
+    if (!field) break;
     const items = result[field] as unknown[];
     result[field] = items.slice(0, Math.max(1, Math.floor(items.length / 2)));
     const returned = (result[field] as unknown[]).length;

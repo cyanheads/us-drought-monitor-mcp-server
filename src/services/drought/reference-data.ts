@@ -6,7 +6,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { notFound, validationError } from '@cyanheads/mcp-ts-core/errors';
-import { renderFields } from './format.js';
 import { decodeReferenceBundle } from './reference-bundle.js';
 import type { GeographyRecord, ReferenceRecord, ReferenceTopic } from './reference-schema.js';
 import type { Area, Geography, HucLevel } from './types.js';
@@ -128,6 +127,16 @@ export function resolveGeography(input: Geography): AreaResolution {
     const row = referenceBundle.climateDivisions.find((division) => division.id === value);
     return row ? { areas: [row], requiresLookup: false } : unknown();
   }
+  if (input.areaType === 'river_forecast_center') {
+    const row =
+      referenceBundle.riverForecastCenters.find((area) => area.id === value.toUpperCase()) ??
+      uniqueMatch(referenceBundle.riverForecastCenters, value);
+    if (!row)
+      throw notFound('River Forecast Center is not in the official reference set.', {
+        reason: 'unknown_area',
+      });
+    return { areas: [row], requiresLookup: false };
+  }
   if (!/^\d{4}[A-Za-z]$/.test(value)) return invalid();
   const row = referenceBundle.tribal.find((tribal) => tribal.id === value.toUpperCase());
   return row
@@ -188,25 +197,26 @@ const definitions: Partial<Record<ReferenceTopic, ReferenceRecord[]>> = {
         'Coverage begins 2000-01-04. Maps represent Tuesday through Monday and are usually published Thursday. This offline reference does not determine the latest published map.',
     },
   ],
-  area_types: (['us', 'state', 'county', 'huc', 'tribal', 'climate_division'] as const).map(
-    (id) => ({
-      id,
-      name: id,
-      description:
-        id === 'us'
-          ? 'us returns both conus and total.'
-          : 'Exact identifiers preserve leading zeroes; no fuzzy name or boundary substitution.',
-      identifierFormat: {
-        us: 'us | conus | total',
-        state: 'postal code | two-digit FIPS | exact full name',
-        county: 'five-digit FIPS | exact or unique suffix-free county name, state',
-        huc: 'exact 2/4/6/8 digits plus matching hucLevel',
-        tribal: 'bundled GEOID including suffix',
-        climate_division: 'four-digit bundled AOI id (not state FIPS)',
-      }[id],
-      metrics: ['us', 'state', 'county'].includes(id) ? allMetrics : allMetrics.slice(0, 2),
-    }),
-  ),
+  area_types: (
+    ['us', 'state', 'county', 'huc', 'tribal', 'climate_division', 'river_forecast_center'] as const
+  ).map((id) => ({
+    id,
+    name: id,
+    description:
+      id === 'us'
+        ? 'us returns both conus and total.'
+        : 'Exact identifiers preserve leading zeroes; no fuzzy name or boundary substitution.',
+    identifierFormat: {
+      us: 'us | conus | total',
+      state: 'postal code | two-digit FIPS | exact full name',
+      county: 'five-digit FIPS | exact or unique suffix-free county name, state',
+      huc: 'exact 2/4/6/8 digits plus matching hucLevel',
+      tribal: 'bundled GEOID including suffix',
+      climate_division: 'four-digit bundled AOI id (not state FIPS)',
+      river_forecast_center: 'bundled RFC code | exact RFC name',
+    }[id],
+    metrics: ['us', 'state', 'county'].includes(id) ? allMetrics : allMetrics.slice(0, 2),
+  })),
 };
 /** Local filtering and cursor inputs. */
 export interface ReferenceQuery {
@@ -255,6 +265,7 @@ export function listReference(input: ReferenceQuery) {
         counties: referenceBundle.counties,
         tribal: referenceBundle.tribal,
         climate_divisions: referenceBundle.climateDivisions,
+        river_forecast_centers: referenceBundle.riverForecastCenters,
         huc: referenceBundle.huc,
       } as Partial<Record<ReferenceTopic, ReferenceRecord[]>>
     )[input.topic] ??
@@ -302,19 +313,7 @@ export function listReference(input: ReferenceQuery) {
       });
     }
   }
-  const records: ReferenceRecord[] = [];
-  let bytes = 0;
-  for (const row of rows.slice(offset, offset + (input.limit ?? 50))) {
-    const size = JSON.stringify(row).length;
-    if (bytes + size > 30_000) break;
-    records.push(row);
-    bytes += size;
-  }
-  if (rows[offset] && !records.length)
-    throw validationError('A reference record cannot fit the response budget.', {
-      reason: 'dataset_too_large',
-      component: 'reference_record',
-    });
+  const records = rows.slice(offset, offset + (input.limit ?? 25));
   const sourceMetadata = referenceBundle.sourceMetadata.filter((source) => {
     const url = source.url;
     if (url.endsWith('/Permission.aspx') || url.endsWith('/DSCI.aspx')) return true;
@@ -336,6 +335,8 @@ export function listReference(input: ReferenceQuery) {
         );
       case 'tribal':
         return url.endsWith('?tribal');
+      case 'river_forecast_centers':
+        return url.endsWith('?rfc');
       case 'huc':
         return url.endsWith(`?huc${input.hucLevel}`);
       case 'dsci':
@@ -352,12 +353,16 @@ export function listReference(input: ReferenceQuery) {
       }
     }
   });
-  const result = {
+  const next = offset + records.length;
+  return {
     topic: input.topic,
     records,
     totalCount: rows.length,
-    nextCursor: null as string | null,
-    hasMore: false,
+    nextCursor:
+      next < rows.length
+        ? Buffer.from(JSON.stringify({ binding, offset: next })).toString('base64url')
+        : null,
+    hasMore: next < rows.length,
     bundleVersion: referenceBundle.bundleVersion,
     sourceMetadata,
     provenance: provenance(
@@ -365,22 +370,4 @@ export function listReference(input: ReferenceQuery) {
       sourceMetadata[0]?.fetchedAt,
     ),
   };
-  function continuation(): void {
-    const next = offset + records.length;
-    result.hasMore = next < rows.length;
-    result.nextCursor = result.hasMore
-      ? Buffer.from(JSON.stringify({ binding, offset: next })).toString('base64url')
-      : null;
-  }
-  continuation();
-  while (JSON.stringify(result).length > 80_000 || renderFields(result).length > 80_000) {
-    records.pop();
-    continuation();
-    if (!records.length)
-      throw validationError('A reference record cannot fit the response budget.', {
-        reason: 'dataset_too_large',
-        component: 'reference_record',
-      });
-  }
-  return result;
 }

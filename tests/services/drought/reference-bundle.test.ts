@@ -10,6 +10,31 @@ import {
 import { referenceBundle } from '@/services/drought/reference-data.js';
 
 describe('compact reference bundle codec', () => {
+  it('ships authoritative RFC identities and acquisition evidence through the codec', () => {
+    const hydrated = decodeReferenceBundle(encodeReferenceBundle(referenceBundle));
+    expect(hydrated.riverForecastCenters.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'AKRFC', name: 'Alaska' },
+      { id: 'ABRFC', name: 'Arkansas Red Basin' },
+      { id: 'CNRFC', name: 'California Nevada' },
+      { id: 'CBRFC', name: 'Colorado Basin' },
+      { id: 'LMRFC', name: 'Lower Mississippi' },
+      { id: 'MARFC', name: 'Middle Atlantic' },
+      { id: 'MBRFC', name: 'Missouri Basin' },
+      { id: 'NCRFC', name: 'North Central' },
+      { id: 'NERFC', name: 'Northeast' },
+      { id: 'NWRFC', name: 'Northwest' },
+      { id: 'OHRFC', name: 'Ohio' },
+      { id: 'SERFC', name: 'Southeast' },
+      { id: 'WGRFC', name: 'West Gulf' },
+    ]);
+    expect(
+      hydrated.riverForecastCenters.every((row) => row.areaType === 'river_forecast_center'),
+    ).toBe(true);
+    expect(hydrated.sourceMetadata.find((source) => source.url.endsWith('?rfc'))).toMatchObject({
+      recordCount: 13,
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
   it('round-trips every real record and all acquisition evidence exactly', () => {
     const stored = encodeReferenceBundle(referenceBundle);
     expect(stored.schemaVersion).toBe(2);

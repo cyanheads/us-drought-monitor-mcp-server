@@ -16,6 +16,7 @@ import {
   McpError,
   validationError,
 } from '@cyanheads/mcp-ts-core/errors';
+import { getCanvasConfig } from '../../config/canvas-config.js';
 import { getCanvas } from '../canvas-accessor.js';
 import type { StageProducer, StageRequest } from './drought-service.js';
 import { renderFields } from './format.js';
@@ -268,16 +269,6 @@ export class DataframeService {
           ),
         ].map((name) => [`buckets.${name}`, name]),
       );
-    let responseMetadata =
-      request.kind === 'timeseries'
-        ? boundedMetadata(
-            metadata,
-            (value) =>
-              JSON.stringify(value).length <= 40_000 && fits({ ...value, rows: [], staging: null }),
-          )
-        : metadata;
-    if (JSON.stringify(responseMetadata).length > 40_000) large('table_metadata');
-    if (!fits({ ...responseMetadata, rows: [], staging: null })) large('response_metadata');
     const metadataBytes = Buffer.byteLength(JSON.stringify(metadata));
     let bytes = 2;
     let characters = 2;
@@ -287,6 +278,16 @@ export class DataframeService {
       characters += json.length + (index ? 1 : 0);
       if (index >= MAX_ROWS || bytes > MAX_BYTES) large('table_rows');
     }
+    request.signal.throwIfAborted();
+    if (!getCanvas() && !request.canvas_id) return { rows: request.rows, staging: null };
+    let responseMetadata =
+      request.kind === 'timeseries'
+        ? boundedMetadata(
+            metadata,
+            (value) =>
+              JSON.stringify(value).length <= 40_000 && fits({ ...value, rows: [], staging: null }),
+          )
+        : metadata;
     let previewCount = 0;
     let previewCharacters = 2;
     for (const row of request.rows) {
@@ -305,11 +306,24 @@ export class DataframeService {
       (JSON.stringify(rows).length > 40_000 || !fits({ ...responseMetadata, rows, staging: null }))
     )
       rows.pop();
+    request.signal.throwIfAborted();
     if (
       responseMetadata === metadata &&
-      (!request.rows.length || (characters <= 40_000 && rows.length === request.rows.length))
-    )
+      characters <= 40_000 &&
+      rows.length === request.rows.length &&
+      JSON.stringify(metadata).length <= 40_000 &&
+      fits({ ...metadata, rows: request.rows, staging: null })
+    ) {
+      if (request.canvas_id) {
+        try {
+          await engine().acquire(request.canvas_id, ctx, { signal: request.signal });
+          request.signal.throwIfAborted();
+        } catch (error) {
+          safeError(error);
+        }
+      }
       return { rows: request.rows, staging: null };
+    }
     return await this.locked(async () => {
       await this.reconcile();
       if (!request.canvas_id) await this.reclaimEmpty(ctx);
@@ -424,8 +438,6 @@ export class DataframeService {
             JSON.stringify({ ...value, staging: plannedHandle }).length <= 40_000 &&
             fits({ ...value, rows: [], staging: plannedHandle }),
         );
-      if (JSON.stringify({ ...responseMetadata, staging: plannedHandle }).length > 40_000)
-        large('response_metadata');
       try {
         instance = await canvas.acquire(reuseId, ctx, { signal: request.signal });
         const reused = ledger.canvases.get(instance.canvasId);
@@ -451,7 +463,6 @@ export class DataframeService {
           expires_at: table.expiresAt,
         };
         while (rows.length && !fits({ ...responseMetadata, rows, staging })) rows.pop();
-        if (!fits({ ...responseMetadata, rows, staging })) large('response_envelope');
         let entry = ledger.canvases.get(instance.canvasId);
         if (!entry) {
           entry = { instance, owned: instance.isNew, tables: new Map() };
@@ -516,13 +527,14 @@ export class DataframeService {
         { reason: 'invalid_metadata_page' },
       );
     const offset = input.metadata_offset ?? 0;
-    const limit = input.metadata_limit ?? 20;
+    const requestedLimit = input.metadata_limit ?? 20;
+    const limit = Math.min(requestedLimit, 100);
     if (
       !Number.isSafeInteger(offset) ||
       offset < 0 ||
-      !Number.isSafeInteger(limit) ||
-      limit < 1 ||
-      limit > 100
+      !Number.isSafeInteger(requestedLimit) ||
+      requestedLimit < 1 ||
+      (!getCanvasConfig().clampLimits && requestedLimit > 100)
     )
       throw validationError(
         'Use a nonnegative metadata_offset and metadata_limit from 1 through 100.',
@@ -592,17 +604,7 @@ export class DataframeService {
           next_offset: null as number | null,
         };
         result.metadata_page = page;
-        const pageFits = () =>
-          fits(result, renderFields) &&
-          JSON.stringify({ tables: result.tables, metadata_page: page }).length <= 40_000;
-        while (items.length) {
-          page.next_offset = offset + items.length < full.length ? offset + items.length : null;
-          if (pageFits()) break;
-          items.pop();
-        }
-        if (offset < full.length && !items.length) large('metadata_page_item');
         page.next_offset = offset + items.length < full.length ? offset + items.length : null;
-        if (!pageFits()) large('metadata_page');
       } else if (
         !fits(result, renderFields) ||
         JSON.stringify(result.tables.map((table) => table.metadata)).length > 40_000
@@ -615,12 +617,11 @@ export class DataframeService {
           });
         }
       }
-      if (!fits(result, renderFields)) large('table_metadata');
+      ctx.signal.throwIfAborted();
       this.touch(ctx.tenantId, instance.canvasId);
       return result;
     } catch (error) {
-      if (['dataset_too_large', 'invalid_metadata_page'].includes(reasonOf(error) ?? ''))
-        throw error;
+      if (reasonOf(error) === 'invalid_metadata_page') throw error;
       safeError(error);
     } finally {
       this.descriptions--;
@@ -646,44 +647,22 @@ export class DataframeService {
         const metadata = this.metadata(ctx.tenantId, instance.canvasId, table.name);
         return { name: table.name, provenance: metadata.provenance ?? null };
       });
-      const rows: Record<string, unknown>[] = [];
-      let characters = 2;
-      for (const row of result.rows.slice(0, input.limit)) {
-        const size = JSON.stringify(row).length + (rows.length ? 1 : 0);
-        if (characters + size > 40_000) break;
-        rows.push(row);
-        characters += size;
-      }
-      const output = () => {
-        const has_more = rows.length < result.rows.length || result.truncated === true;
-        return {
-          canvas_id: instance.canvasId,
-          columns: result.columns,
-          rows,
-          returnedCount: rows.length,
-          offset: input.offset,
-          next_offset: has_more ? input.offset + rows.length : null,
-          has_more,
-          countIsExact: input.offset === 0 && !has_more,
-          tableMetadata,
-        };
-      };
-      if (JSON.stringify({ ...output(), rows: [] }).length > 40_000)
-        throw validationError(
-          'Re-stage the needed dataset in a new canvas, then query that canvas.',
-          { reason: 'dataset_too_large', component: 'query_metadata' },
-        );
-      while (rows.length && !fits(output(), renderFields)) rows.pop();
-      if ((result.rows.length && !rows.length) || !fits(output(), renderFields))
-        throw validationError(
-          'Project smaller values with drought_dataframe_query after inspecting columns with drought_dataframe_describe.',
-          { reason: 'query_row_too_large' },
-        );
+      const rows = result.rows.slice(0, input.limit);
+      const has_more = rows.length < result.rows.length || result.truncated === true;
       signal.throwIfAborted();
       this.touch(ctx.tenantId, instance.canvasId);
-      return output();
+      return {
+        canvas_id: instance.canvasId,
+        columns: result.columns,
+        rows,
+        returnedCount: rows.length,
+        offset: input.offset,
+        next_offset: has_more ? input.offset + rows.length : null,
+        has_more,
+        countIsExact: input.offset === 0 && !has_more,
+        tableMetadata,
+      };
     } catch (error) {
-      if (['query_row_too_large', 'dataset_too_large'].includes(reasonOf(error) ?? '')) throw error;
       safeError(error);
     } finally {
       this.queries--;

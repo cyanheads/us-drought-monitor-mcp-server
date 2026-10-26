@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "us-drought-monitor-mcp-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@cyanheads/us-drought-monitor-mcp-server"],
+      "env": { "MCP_TRANSPORT_TYPE": "stdio" }
+    }
+  }
+}

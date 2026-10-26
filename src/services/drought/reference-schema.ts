@@ -35,6 +35,7 @@ export const ReferenceBundleSchema = z.object({
   counties: z.array(GeographyRecordSchema),
   tribal: z.array(GeographyRecordSchema),
   climateDivisions: z.array(GeographyRecordSchema),
+  riverForecastCenters: z.array(GeographyRecordSchema),
   huc: z.array(GeographyRecordSchema),
 });
 /** Reference topic selector. */
@@ -47,6 +48,7 @@ export const ReferenceTopicSchema = z.enum([
   'counties',
   'tribal',
   'climate_divisions',
+  'river_forecast_centers',
   'huc',
 ]);
 /** Declared informational reference records. */

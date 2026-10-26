@@ -221,7 +221,7 @@ describe('official references', () => {
       referenceBundle.counties.splice(referenceBundle.counties.indexOf(fixture), 1);
     }
   });
-  it('rejects a single oversized reference record instead of returning a nonadvancing cursor', () => {
+  it('returns a complete oversized reference record without a nonadvancing cursor', () => {
     const fixture = {
       areaType: 'county' as const,
       id: '01999',
@@ -231,11 +231,9 @@ describe('official references', () => {
     };
     referenceBundle.counties.push(fixture);
     try {
-      expect(() =>
+      expect(
         listReference({ topic: 'counties', nameContains: 'Oversized fixture', limit: 1 }),
-      ).toThrow(
-        expect.objectContaining({ data: expect.objectContaining({ reason: 'dataset_too_large' }) }),
-      );
+      ).toMatchObject({ records: [fixture], nextCursor: null, hasMore: false });
     } finally {
       referenceBundle.counties.splice(referenceBundle.counties.indexOf(fixture), 1);
     }

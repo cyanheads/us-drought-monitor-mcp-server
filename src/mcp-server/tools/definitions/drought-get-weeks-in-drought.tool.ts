@@ -4,6 +4,7 @@
  */
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { effectiveLimit, pageLimit } from '../../../config/page-limits.js';
 import { droughtService } from '../../../services/drought/drought-service.js';
 import { AreaSchema, ProvenanceSchema } from '../../../services/drought/types.js';
 import { renderWorkflow } from '../../../services/drought/workflow-format.js';
@@ -56,12 +57,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
       .max(2048)
       .optional()
       .describe('Continuation returned with identical filters.'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .default(50)
-      .describe('Maximum rows on this page; values above 200 are clamped with disclosure.'),
+    limit: pageLimit(25, 200, 'rows per page'),
   }),
   output: z.object({
     guidance: z
@@ -146,7 +142,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     {
       reason: 'dataset_too_large',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'Complete duration acquisition or metadata exceeds budgets.',
+      when: 'Complete duration acquisition or cache exceeds resource quotas.',
       recovery: 'Narrow dates or states in drought_get_weeks_in_drought and retry.',
       thrownBy: 'service',
     },
@@ -167,7 +163,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     },
   ],
   async handler(input, ctx) {
-    const limit = Math.min(input.limit, 200);
+    const limit = effectiveLimit(input.limit, 200, 'drought_get_weeks_in_drought', ctx);
     ctx.enrich({
       effectiveLimit: limit,
       ...(input.limit > limit

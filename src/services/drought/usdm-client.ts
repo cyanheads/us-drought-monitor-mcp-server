@@ -31,6 +31,7 @@ const families: Record<AreaType, string> = {
   huc: 'HUCStatistics',
   tribal: 'TribalStatistics',
   climate_division: 'ClimateDivisionStatistics',
+  river_forecast_center: 'RiverForecastCenterStatistics',
 };
 const endpoints: Record<Metric, string> = {
   area_percent: 'GetDroughtSeverityStatisticsByAreaPercent',
@@ -44,6 +45,7 @@ const RawRow = z
     validStart: z.string().optional(),
     validEnd: z.string().optional(),
     name: z.string().nullable().optional(),
+    riverForecastCenterName: z.string().nullable().optional(),
     state: z.string().nullable().optional(),
     stateAbbreviation: z.string().nullable().optional(),
     county: z.string().nullable().optional(),
@@ -338,6 +340,13 @@ export class UsdmClient {
       );
       if (!state) return shape('USDM returned an unmatched state label.');
       id = state.id;
+    } else if (query.areaType === 'river_forecast_center') {
+      const label = raw.riverForecastCenterName ?? raw.name;
+      const area = query.areas.find(
+        (area) => label && normalizeName(area.name) === normalizeName(label),
+      );
+      if (!area) return shape('USDM returned an unmatched River Forecast Center name.');
+      id = area.id;
     } else {
       if (query.areas.length !== 1)
         return shape('Tribal and climate division requests require a single canonical selector.');
@@ -364,7 +373,7 @@ export class UsdmClient {
         raw.county ??
         (query.areaType === 'state'
           ? area.name
-          : (raw.huc ?? raw.name ?? tribalName ?? climateName)) ??
+          : (raw.huc ?? raw.riverForecastCenterName ?? raw.name ?? tribalName ?? climateName)) ??
         area.name,
       ...(raw.state ? { state: raw.state } : {}),
     };

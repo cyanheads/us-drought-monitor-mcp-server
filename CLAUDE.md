@@ -2,9 +2,9 @@
 
 **Server:** us-drought-monitor-mcp-server
 **Version:** 0.1.3
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.15`
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.18`
 **Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` ^2.3.1
+**MCP SDK:** `@modelcontextprotocol/server` ^2.4.0
 **Zod:** ^4.6.7
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -51,7 +51,7 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 ### Workflow tools
 
-The eight definitions live in `src/mcp-server/tools/definitions/`; `src/index.ts` registers seven by default and gates `drought_dataframe_drop` with `disabledTool`. There are no resources or prompts.
+The eight definitions live in `src/mcp-server/tools/definitions/`; `src/index.ts` registers seven by default and gates `drought_dataframe_drop` with `disabledTool`. The caller guide in `skills/us-drought-monitor-guide/SKILL.md` is served through skill resources; there are no prompts.
 
 `drought_get_timeseries` admits work before fetching, passes a staging callback to the domain service, discloses missing observations, and renders the entire returned object:
 
@@ -85,15 +85,17 @@ Only the eight legacy Connecticut FIPS `09001`, `09003`, `09005`, `09007`, `0900
 
 ### Reference bundle
 
-`src/data/reference.json` is the generated offline geography bundle (states, counties, tribal areas, climate divisions, HUCs) with source URLs, vintages and SHA-256 hashes. Refresh it only with `bun run scripts/update-reference-data.ts`, which downloads the official Census and USDM tables, validates them and writes the file atomically; never hand-edit it or fetch references at startup. `src/services/drought/reference-bundle.ts` encodes and decodes the stored form.
+`src/data/reference.json` is the generated offline geography bundle (states, counties, tribal areas, climate divisions, River Forecast Centers, HUCs) with source URLs, vintages and SHA-256 hashes. Refresh it only with `bun run scripts/update-reference-data.ts`, which downloads the official Census and USDM tables, validates them and writes the file atomically; never hand-edit it or fetch references at startup. `src/services/drought/reference-bundle.ts` encodes and decodes the stored form.
+
+River Forecast Centers use `areaType: river_forecast_center` and reference topic `river_forecast_centers`; resolve official bundled codes or exact names, rejecting unknown RFCs locally. Validate metric `riverForecastCenterName` and DSCI `name` against the requested area. Support area percentages, square miles and DSCI; population stays unsupported. Supported population snapshots and population series carry `provenance.populationInterpretation` through retained describe/query metadata, preserving source precision and the official methodology link without inferring a census vintage.
 
 Climate references include postal states from NOAA's contiguous climate codes plus USDM's verified 49xx Alaska mapping; never interpret climate prefixes as state FIPS. Reference state filters support counties and climate divisions. `parentHuc` selects descendants of an existing shorter level 2/4/6 parent before pagination; normalized parent and state filters bind cursors. Topic dependencies select both source metadata and provenance URLs, including mapping evidence and shared attribution/interpretation sources.
 
-Reference records, query rows and describe columns share lossless JSON-cell table rendering. Budget against each tool's actual renderer. Clamp positive integer reference/comparison/duration limits to 200 and query limits to 500, populating optional `effectiveLimit` and `limitNotice` enrichment on success as applicable; retain all continuation. Preserve blank optional dates and strict calendar validation. SQL normalization applies original-expression text gates, rejects multiple statements and positively identified writes, and removes only one terminal delimiter outside literals/comments; full provider parser and plan gates remain authoritative. Never restrict reads to a keyword allowlist.
+Reference records, query rows and describe columns share lossless JSON-cell table rendering. Explicit reference, duration, SQL and retained-metadata pages return the effective count, fewer only at exhaustion, with complete values regardless of width. Defaults are 25 for references/durations/SQL, 20 for comparison previews/metadata. Clamp positive integer reference/comparison/duration limits to 200, query limits to 500 and metadata limits to 100, populating optional `effectiveLimit` and `limitNotice` enrichment; retain all continuation. `DROUGHT_CLAMP_LIMITS=false` advertises and enforces maxima instead; clamps emit a request log and `drought.limit_clamps` counter. Size thresholds select producer staging and metadata prefixes only; singletons and fixed metadata never fail solely on output size. Without a provider, producers return complete inline results within acquisition limits, only when no explicit token was supplied. Keep acquisition, retention, tenant, expiry and capacity failures intact. Preserve blank optional dates and strict calendar validation. SQL normalization applies original-expression text gates, rejects multiple statements and positively identified writes, and removes only one terminal delimiter outside literals/comments; full provider parser and plan gates remain authoritative. Never restrict reads to a keyword allowlist.
 
 ### Configuration and startup
 
-`src/config/canvas-config.ts` parses `DROUGHT_DATAFRAME_DROP_ENABLED` with `z.stringbool().default(false)`. The entrypoint loads `.env`, then seeds only unset canvas defaults: DuckDB, 128 MB per engine, four canvases per tenant. Explicit `CANVAS_PROVIDER_TYPE=none` wins. An enabled engine requires `CANVAS_DEFAULT_ROW_LIMIT >= 501`.
+`src/config/canvas-config.ts` parses `DROUGHT_DATAFRAME_DROP_ENABLED` with `z.stringbool().default(false)` and `DROUGHT_CLAMP_LIMITS` with `z.stringbool().default(true)`. `src/config/load-env.ts` loads `.env` before tool schema construction; the entrypoint seeds only unset canvas defaults: DuckDB, 128 MB per engine, four canvases per tenant. Explicit `CANVAS_PROVIDER_TYPE=none` wins. An enabled engine requires `CANVAS_DEFAULT_ROW_LIMIT >= 501`.
 
 `createApp()` uses `name` and `title` equal to `us-drought-monitor-mcp-server`, `sessionMode: 'stateless'`, and `setup(core) { setCanvas(core.canvas); }`. Description comes from `package.json`; instructions explain geography resolution, map weeks, missing data and analytical continuation.
 
@@ -207,6 +209,7 @@ Available skills:
 | `add-app-tool` | Scaffold an MCP App tool + paired UI resource |
 | `add-resource` | Scaffold a new resource definition |
 | `add-prompt` | Scaffold a new prompt definition |
+| `add-skill` | Author a skill the server publishes in root `skills/` for the agents that use it — when one earns its place, structure, validation, delivery |
 | `add-service` | Scaffold a new service integration |
 | `add-test` | Scaffold test file for a tool, resource, or service |
 | `field-test` | Exercise tools/resources/prompts with real inputs, verify behavior, report issues |
@@ -276,7 +279,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`bun run bundle` produces an inline-only `.mcpb` for Claude Desktop. The cleaner removes development dependencies, dependency-shipped agent docs and platform-specific native bindings. `manifest.json` explicitly fixes `CANVAS_PROVIDER_TYPE=none`: reference, snapshot and bounded inline results work; staging and SQL return `canvas_unavailable` with an npm/Docker installation hint. Keep the cleaner intact. npm and Docker include the production DuckDB dependency and default to the analytical provider.
+`bun run bundle` produces an inline-only `.mcpb` for Claude Desktop. The cleaner removes development dependencies, dependency-shipped agent docs and platform-specific native bindings. `manifest.json` explicitly fixes `CANVAS_PROVIDER_TYPE=none`: reference, snapshot and producer workflows return complete inline results within acquisition limits when no canvas token is supplied; explicit tokens and dataframe operations return `canvas_unavailable` with an npm/Docker installation hint. Keep the cleaner intact. npm and Docker include the production DuckDB dependency and default to the analytical provider.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 

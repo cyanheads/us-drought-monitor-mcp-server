@@ -5,6 +5,7 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { CanvasIdSchema } from '@cyanheads/mcp-ts-core/canvas';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { effectiveLimit, pageLimit } from '../../../config/page-limits.js';
 import { dataframeService } from '../../../services/drought/dataframe-service.js';
 import { renderFields } from '../../../services/drought/format.js';
 
@@ -23,14 +24,7 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
       .describe(
         'One DuckDB read expression with an optional terminal semicolon; staged tables only.',
       ),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .default(100)
-      .describe(
-        'Maximum returned rows, clamped to 500 with disclosure and further bounded by complete response size.',
-      ),
+    limit: pageLimit(25, 500, 'rows per page'),
     offset: z
       .number()
       .int()
@@ -131,22 +125,6 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
       thrownBy: 'service',
     },
     {
-      reason: 'dataset_too_large',
-      code: JsonRpcErrorCode.ValidationError,
-      when: 'Combined source metadata exceeds the query response budget.',
-      recovery:
-        'Re-stage the needed dataset in a new canvas with drought_get_timeseries or drought_compare_areas, omitting canvas_id, then query the returned token.',
-      thrownBy: 'service',
-    },
-    {
-      reason: 'query_row_too_large',
-      code: JsonRpcErrorCode.ValidationError,
-      when: 'One projected row cannot fit a complete response.',
-      recovery:
-        'Inspect columns with drought_dataframe_describe and project smaller values in drought_dataframe_query.',
-      thrownBy: 'service',
-    },
-    {
       reason: 'staging_busy',
       code: JsonRpcErrorCode.RateLimited,
       when: 'Two queries are already active in this process.',
@@ -156,7 +134,7 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
     },
   ],
   async handler(input, ctx) {
-    const limit = Math.min(input.limit, 500);
+    const limit = effectiveLimit(input.limit, 500, 'drought_dataframe_query', ctx);
     ctx.enrich({
       effectiveLimit: limit,
       ...(input.limit > limit
@@ -174,7 +152,9 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
       });
     if (!result.returnedCount)
       ctx.enrich.notice(
-        `No rows match; inspect drought_dataframe_describe with canvas_id ${input.canvas_id}.`,
+        input.offset > 0
+          ? `No rows remain at offset ${input.offset}; reduce offset or inspect drought_dataframe_describe with canvas_id ${input.canvas_id}.`
+          : `No rows match; inspect drought_dataframe_describe with canvas_id ${input.canvas_id}.`,
       );
     return result;
   },
