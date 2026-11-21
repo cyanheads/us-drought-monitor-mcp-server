@@ -558,6 +558,21 @@ describe('complete timeseries producer', () => {
     );
     expect(result.summary[0]?.peakDsci).toBeNull();
   });
+  it('keeps missing runs separate across a published intermediate observation', async () => {
+    const { service } = fixture(() => [raw('2024-02-27')]);
+    const result = await service.timeseries(
+      { areas: [state], startDate: '2024-02-20', endDate: latest },
+      signal(),
+    );
+    expect(result.missingObservations).toHaveLength(2);
+    for (const missing of result.missingObservations) {
+      expect(missing.count).toBe(2);
+      expect(missing.mapDateRuns).toEqual([
+        { startMapDate: '2024-02-20', endMapDate: '2024-02-20', stepDays: 7 },
+        { startMapDate: latest, endMapDate: latest, stepDays: 7 },
+      ]);
+    }
+  });
   it('sends all complete rows to the staging seam before any preview', async () => {
     const { service } = fixture(() => [raw('2024-02-27'), raw()]);
     const observed: StageRequest[] = [];
@@ -574,9 +589,73 @@ describe('complete timeseries producer', () => {
     expect(result.rowCount).toBe(2);
     expect(result.rows).toHaveLength(1);
   });
-  it('uses county postal batching and filters unrequested returned counties', async () => {
+  it.each(['huc', 'climate_division'] as const)(
+    'batches 32 bundled %s selectors in a single map week',
+    async (areaType) => {
+      const huc = areaType === 'huc';
+      const bundle = huc
+        ? referenceBundle.huc.filter((row) => row.hucLevel === 8)
+        : referenceBundle.climateDivisions;
+      const targets = bundle.slice(0, huc ? 32 : 30);
+      if (!huc) targets.push(...bundle.filter((row) => row.id === '4801' || row.id === '4901'));
+      const { service, fetcher } = fixture((url) =>
+        targets
+          .filter((row) => url.searchParams.get('aoi')?.split(',').includes(row.id))
+          .map((row) =>
+            raw(
+              latest,
+              huc
+                ? url.pathname.endsWith('/GetDSCI')
+                  ? { hucid: row.id, dsci: 29 }
+                  : { hucId: row.id }
+                : url.pathname.endsWith('/GetDSCI')
+                  ? {
+                      state: row.state,
+                      climateDivision: String(Number(row.id.slice(2))),
+                      dsci: row.id === '4901' ? 30 : 29,
+                    }
+                  : { climateDivisionsID: row.id },
+            ),
+          ),
+      );
+      const result = await service.produceTimeseries(
+        {
+          areas: targets.map((row) =>
+            huc
+              ? { areaType: 'huc', aoi: row.id, hucLevel: 8 }
+              : { areaType: 'climate_division', aoi: row.id },
+          ),
+          startDate: latest,
+          endDate: latest,
+        },
+        signal(),
+      );
+      expect(result.rows.map(({ id }) => id)).toEqual(targets.map(({ id }) => id).sort());
+      expect(result.rows.every(({ dsci, id }) => dsci === (id === '4901' ? 30 : 29))).toBe(true);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    },
+  );
+  it('acquires only the requested Texas counties across the full history window', async () => {
+    const { service, fetcher } = fixture();
+    const result = await service.produceTimeseries(
+      {
+        areas: [
+          { areaType: 'county', aoi: '48453' },
+          { areaType: 'county', aoi: '48201' },
+        ],
+        startDate: '2000-01-01',
+        endDate: latest,
+      },
+      signal(),
+    );
+    expect(result.metadata.effectiveRange).toEqual({ startDate: '2000-01-04', endDate: latest });
+    expect(
+      fetcher.mock.calls.slice(1).map(([url]) => new URL(String(url)).searchParams.get('aoi')),
+    ).toEqual(['48201,48453', '48201,48453']);
+  });
+  it('uses an explicit FIPS batch for bundled counties', async () => {
     const { service, fetcher } = fixture(() =>
-      ['01001', '01003', '01005'].map((fips) => raw(latest, { fips, county: fips, state: 'AL' })),
+      ['01001', '01003'].map((fips) => raw(latest, { fips, county: fips, state: 'AL' })),
     );
     const result = await service.produceTimeseries(
       {
@@ -592,16 +671,17 @@ describe('complete timeseries producer', () => {
     expect(result.rows.map((row) => row.id)).toEqual(['01001', '01003']);
     expect(
       fetcher.mock.calls.slice(1).map(([url]) => new URL(String(url)).searchParams.get('aoi')),
-    ).toEqual(['AL', 'AL']);
+    ).toEqual(['01001,01003', '01001,01003']);
   });
   it('partitions full-history county batches by byte-estimated weekly windows without gaps or duplicate boundaries', async () => {
     const { service, fetcher } = fixture();
+    const counties = referenceBundle.counties
+      .slice(0, 100)
+      .map((row) => row.id)
+      .sort();
     const result = await service.produceTimeseries(
       {
-        areas: [
-          { areaType: 'county', aoi: '01001' },
-          { areaType: 'county', aoi: '01003' },
-        ],
+        areas: counties.map((aoi) => ({ areaType: 'county', aoi })),
         startDate: '2000-01-04',
         endDate: latest,
       },
@@ -622,15 +702,14 @@ describe('complete timeseries producer', () => {
     }));
     expect(windows[0]?.start).toBe('2000-01-04');
     expect(windows.at(-1)?.end).toBe(latest);
-    const counties = referenceBundle.counties.filter((county) => county.state === 'AL').length;
     for (const [index, window] of windows.entries()) {
-      expect(requests[index]?.searchParams.get('aoi')).toBe('AL');
+      expect(requests[index]?.searchParams.get('aoi')).toBe(counties.join(','));
       if (index) expect(window.start).toBe(addDays(windows[index - 1]?.end ?? '', 7));
       const weeks = (Date.parse(window.end) - Date.parse(window.start)) / 604_800_000 + 1;
-      expect(weeks * counties * 1024).toBeLessThanOrEqual(8 * 1024 * 1024);
+      expect(weeks * counties.length * 320).toBeLessThanOrEqual(8 * 1024 * 1024);
     }
     expect(fetcher.mock.calls).toHaveLength(1 + requests.length * 2);
-    expect(result.metadata.missingObservations).toHaveLength(4);
+    expect(result.metadata.missingObservations).toHaveLength(200);
     expect(result.rows).toEqual([]);
   });
   it('uses a direct exact selector for shape-valid unknown numeric counties', async () => {
@@ -810,6 +889,44 @@ describe('authoritative weeks and immutable pagination', () => {
       })),
     );
     expect(second).toMatchObject({ totalCount: 3, hasMore: false, nextCursor: null });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('continues county duration by FIPS after a suffix-free name', async () => {
+    const { service, fetcher } = fixture(() => streaks);
+    const countyInput = { ...input, states: undefined, limit: 1 };
+    const first = await service.weeks({ ...countyInput, county: 'Autauga, AL' }, signal());
+    expect(first).toMatchObject({ county: { id: '01001' }, totalCount: 2 });
+    const last = await service.weeks(
+      { ...countyInput, county: '01001', cursor: first.nextCursor ?? undefined },
+      signal(),
+    );
+    expect(last).toMatchObject({ county: { id: '01001' }, hasMore: false, nextCursor: null });
+    expect(last.rows[0]?.startDate).toBe('2024-03-05');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('uses the current spelling for selection guidance on cached duration pages', async () => {
+    const { service, fetcher } = fixture(() =>
+      streaks.map((streak) => ({
+        ...streak,
+        fips: '51159',
+        county: 'Richmond County',
+        state: 'VA',
+      })),
+    );
+    const countyInput = { ...input, states: undefined, limit: 1 };
+    const first = await service.weeks({ ...countyInput, county: 'Richmond, VA' }, signal());
+    expect(first.guidance).toContain('Richmond City (51760)');
+    const second = await service.weeks(
+      { ...countyInput, county: '51159', cursor: first.nextCursor ?? undefined },
+      signal(),
+    );
+    expect(second.guidance).toBeUndefined();
+    const last = await service.weeks(
+      { ...countyInput, county: 'Richmond, VA', cursor: second.nextCursor ?? undefined },
+      signal(),
+    );
+    expect(last.guidance).toContain('Richmond City (51760)');
+    expect(last).toMatchObject({ hasMore: false, nextCursor: null });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it('rejects changed filters, forged offsets and expired cursors without network replay', async () => {

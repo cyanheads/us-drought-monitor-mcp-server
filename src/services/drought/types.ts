@@ -21,7 +21,7 @@ const aoi = z
   .min(1)
   .max(200)
   .describe(
-    'Exact geography identifier or state name; county names require a state and resolve exact names before unique suffix-free aliases.',
+    'Exact geography identifier or state name. County or independent-city names require a state. Exact names win; a shared bare name selects the county with a notice. St./Ste. aliases are accepted for counties.',
   );
 /** Strict geography input, requiring level only for HUC. */
 export const GeographySchema = z

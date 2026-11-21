@@ -1,6 +1,6 @@
 # us-drought-monitor-mcp-server - Directory Structure
 
-Generated on: 2026-10-26 18:15:24
+Generated on: 2026-11-21 16:57:05
 
 ```text
 us-drought-monitor-mcp-server/
@@ -164,11 +164,13 @@ us-drought-monitor-mcp-server/
 │   │           └── drought-list-reference.tool.ts
 │   ├── services/
 │   │   ├── drought/
+│   │   │   ├── analytical-admission.ts
 │   │   │   ├── dataframe-service.ts
 │   │   │   ├── dates.ts
 │   │   │   ├── drought-service.ts
 │   │   │   ├── format.ts
 │   │   │   ├── metadata-pages.ts
+│   │   │   ├── producer-pagination.ts
 │   │   │   ├── query-expression.ts
 │   │   │   ├── reference-bundle.ts
 │   │   │   ├── reference-data.ts
@@ -195,6 +197,7 @@ us-drought-monitor-mcp-server/
 │   │       ├── domain-workflows.test.ts
 │   │       ├── domain.test.ts
 │   │       ├── page-limits.test.ts
+│   │       ├── producer-pagination.test.ts
 │   │       ├── query-expression.test.ts
 │   │       ├── reference-acquisition.test.ts
 │   │       ├── reference-bundle.test.ts
@@ -216,6 +219,7 @@ us-drought-monitor-mcp-server/
 ├── bun.lock
 ├── bunfig.toml
 ├── CHANGELOG.md
+├── CITATION.cff
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile

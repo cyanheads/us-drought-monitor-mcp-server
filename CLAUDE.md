@@ -2,8 +2,8 @@
 
 **Server:** us-drought-monitor-mcp-server
 **Version:** 0.2.0
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.18`
-**Engines:** Bun ≥1.4.0, Node ≥24.0.0
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.22`
+**Engines:** Bun ≥1.4.4, Node ≥24.0.0
 **MCP SDK:** `@modelcontextprotocol/server` ^2.4.0
 **Zod:** ^4.6.7
 
@@ -53,31 +53,11 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 The eight definitions live in `src/mcp-server/tools/definitions/`; `src/index.ts` registers seven by default and gates `drought_dataframe_drop` with `disabledTool`. The caller guide in `skills/us-drought-monitor-guide/SKILL.md` is served through skill resources; there are no prompts.
 
-`drought_get_timeseries` admits work before fetching, passes a staging callback to the domain service, discloses missing observations, and renders the entire returned object:
-
-```ts
-async handler(input, ctx) {
-  const result = await dataframeService.withAdmission(ctx, (stage) =>
-    droughtService.timeseries(input, ctx.signal, stage),
-  );
-  if (!result.rowCount)
-    ctx.enrich.notice(
-      'No USDM observations are available for the resolved areas and published weeks; call drought_get_timeseries with a different range or drought_list_reference(topic=coverage).',
-    );
-  else if (result.missingObservations.length)
-    ctx.enrich.notice(
-      'Missing observations are disclosed by component and date; null DSCI does not mean zero drought.',
-    );
-  return result;
-},
-format: (result) => [{ type: 'text', text: renderWorkflow(result) }],
-```
-
-See the definition for its complete schemas, inline error contract and recovery hints. Preserve every output field on both `content[]` and `structuredContent`.
+`drought_get_timeseries` and `drought_compare_areas` serve inline cursor reads from the retained snapshot. Fresh acquisitions enter the producer admission pool before contacting USDM. Keep full-result counts and guidance alongside the returned rows. See the tool definitions for the staging callback, recovery contracts and enrichment on both `content[]` and `structuredContent`.
 
 Time-series metadata stays complete inline when it fits. Overflow automatically retains complete metadata and rows (including zero-row tables), returning truthful array prefixes and `metadata_pages`. Read every retained collection through `drought_dataframe_describe` with `table_name`, `metadata_field`, `metadata_offset` and `metadata_limit`; never refetch upstream to serve a page. Retained metadata counts toward the same tenant byte quota and expires with its table.
 
-Admission bounds acquisition before fetching, including inline results. Report active contention as `staging_busy`, with wait/retry guidance. At the four-canvas process cap, reuse only the caller tenant's most recently used service-owned canvas with fewer than eight live tables. Successful staging, querying and describing update that order. Explicit token reuse relinquishes service ownership; never evict live tables. Retained-capacity errors recommend token reuse or expiry and expose the earliest relevant expiry when known.
+Admission bounds acquisition before fetching, including inline results. Use separate two-slot producer and query pools. Admit eight FIFO waiters per pool for up to 15 seconds, honoring caller cancellation. Return `staging_busy` when a queue is full or a wait expires. At the four-canvas process cap, reuse only the caller tenant's most recently used service-owned canvas with fewer than eight live tables. Successful staging, querying and describing update that order. Explicit token reuse relinquishes service ownership; never evict live tables. Retained-capacity errors recommend token reuse or expiry and expose the earliest relevant expiry when known.
 
 Duration acquisition sends one request per deduplicated state and merges all rows before county filtering or paging. Consecutive counts are bounded by the effective map window; `startMayExtendEarlier` and `endMayContinue` disclose uncertainty at its Tuesday start and Monday end. Keep non-consecutive rows free of these flags. Abort and settle all sibling requests on failure.
 
@@ -91,7 +71,7 @@ River Forecast Centers use `areaType: river_forecast_center` and reference topic
 
 Climate references include postal states from NOAA's contiguous climate codes plus USDM's verified 49xx Alaska mapping; never interpret climate prefixes as state FIPS. Reference state filters support counties and climate divisions. `parentHuc` selects descendants of an existing shorter level 2/4/6 parent before pagination; normalized parent and state filters bind cursors. Topic dependencies select both source metadata and provenance URLs, including mapping evidence and shared attribution/interpretation sources.
 
-Reference records, query rows and describe columns share lossless JSON-cell table rendering. Explicit reference, duration, SQL and retained-metadata pages return the effective count, fewer only at exhaustion, with complete values regardless of width. Defaults are 25 for references/durations/SQL, 20 for comparison previews/metadata. Clamp positive integer reference/comparison/duration limits to 200, query limits to 500 and metadata limits to 100, populating optional `effectiveLimit` and `limitNotice` enrichment; retain all continuation. `DROUGHT_CLAMP_LIMITS=false` advertises and enforces maxima instead; clamps emit a request log and `drought.limit_clamps` counter. Size thresholds select producer staging and metadata prefixes only; singletons and fixed metadata never fail solely on output size. Without a provider, producers return complete inline results within acquisition limits, only when no explicit token was supplied. Keep acquisition, retention, tenant, expiry and capacity failures intact. Preserve blank optional dates and strict calendar validation. SQL normalization applies original-expression text gates, rejects multiple statements and positively identified writes, and removes only one terminal delimiter outside literals/comments; full provider parser and plan gates remain authoritative. Never restrict reads to a keyword allowlist.
+Render object-record collections, including retained metadata, as lossless JSON-cell tables. Preserve clickable provenance URLs and row units. Explicit reference, duration, SQL and retained-metadata pages return the effective count, fewer only at exhaustion, with complete values regardless of width. Defaults are 25 for references/durations/SQL, 20 for comparison previews/metadata. Clamp positive integer reference/producer/duration limits to 200, query limits to 500 and metadata limits to 100, populating optional `effectiveLimit` and `limitNotice` enrichment; retain all continuation. `DROUGHT_CLAMP_LIMITS=false` advertises and enforces maxima instead; clamps emit a request log and `drought.limit_clamps` counter. Size thresholds select producer staging and metadata prefixes only; singletons and fixed metadata never fail solely on output size. Without a provider or explicit token, producers return complete inline results if `limit` is omitted. A supplied limit returns a count-based page from the same retained snapshot. Bind cursor reads to the tenant, tool and normalized inputs. Keep acquisition, retention, tenant, expiry and capacity failures intact. Preserve blank optional dates and strict calendar validation. SQL normalization applies original-expression text gates, rejects multiple statements and positively identified writes, and removes only one terminal delimiter outside literals/comments; full provider parser and plan gates remain authoritative. Never restrict reads to a keyword allowlist.
 
 ### Configuration and startup
 
@@ -279,7 +259,9 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`bun run bundle` produces an inline-only `.mcpb` for Claude Desktop. The cleaner removes development dependencies, dependency-shipped agent docs and platform-specific native bindings. `manifest.json` explicitly fixes `CANVAS_PROVIDER_TYPE=none`: reference, snapshot and producer workflows return complete inline results within acquisition limits when no canvas token is supplied; explicit tokens and dataframe operations return `canvas_unavailable` with an npm/Docker installation hint. Keep the cleaner intact. npm and Docker include the production DuckDB dependency and default to the analytical provider.
+`bun run bundle` produces an inline-only `.mcpb` for Claude Desktop. The cleaner removes development dependencies, package-root agent docs, stray `SKILL.md` files, and platform-specific native bindings. Nested runtime modules such as the SDK's `dist/ext/skills/` stay in the bundle. `manifest.json` explicitly fixes `CANVAS_PROVIDER_TYPE=none`: reference and snapshot workflows return inline results. Producers without a canvas token return complete inline results when `limit` is omitted or cursor pages when supplied. Explicit tokens and dataframe operations return `canvas_unavailable` with an npm/Docker installation hint. npm and Docker include the production DuckDB dependency and default to the analytical provider.
+
+`scripts/build.ts` copies `src/data/` to `dist/data/` for the offline reference dataset. Preserve this project-specific step when refreshing framework scripts.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 

@@ -63,19 +63,21 @@ describe('page limits', () => {
     expect(add).toHaveBeenCalledExactlyOnceWith(1, { tool: 'drought_list_reference' });
     vi.doUnmock('@cyanheads/mcp-ts-core/utils');
   });
-  it('wires strict schemas and defaults into all five public count inputs', async () => {
+  it('wires strict schemas and defaults into every public count input', async () => {
     vi.stubEnv('DROUGHT_CLAMP_LIMITS', 'false');
     vi.resetModules();
     const [
       { droughtListReferenceTool: reference },
       { droughtGetWeeksInDroughtTool: weeks },
       { droughtCompareAreasTool: compare },
+      { droughtGetTimeseriesTool: series },
       { droughtDataframeQueryTool: query },
       { droughtDataframeDescribeTool: describeTool },
     ] = await Promise.all([
       import('@/mcp-server/tools/definitions/drought-list-reference.tool.js'),
       import('@/mcp-server/tools/definitions/drought-get-weeks-in-drought.tool.js'),
       import('@/mcp-server/tools/definitions/drought-compare-areas.tool.js'),
+      import('@/mcp-server/tools/definitions/drought-get-timeseries.tool.js'),
       import('@/mcp-server/tools/definitions/drought-dataframe-query.tool.js'),
       import('@/mcp-server/tools/definitions/drought-dataframe-describe.tool.js'),
     ]);
@@ -88,7 +90,13 @@ describe('page limits', () => {
         minWeeks: 1,
       }).limit,
     ).toBe(25);
-    expect(compare.input.parse({ scope: 'states' }).limit).toBe(20);
+    const seriesInput = {
+      areas: [{ areaType: 'state' as const, aoi: 'AL' }],
+      startDate: '2024-03-05',
+      endDate: '2024-03-05',
+    };
+    expect(compare.input.parse({ scope: 'states' }).limit).toBeUndefined();
+    expect(series.input.parse(seriesInput).limit).toBeUndefined();
     expect(query.input.parse({ canvas_id: 'missing000', sql: 'SELECT 1' }).limit).toBe(25);
     expect(describeTool.input.parse({ canvas_id: 'missing000' }).metadata_limit).toBe(20);
     const results = await Promise.all([
@@ -101,6 +109,7 @@ describe('page limits', () => {
         limit: 201,
       }),
       runToolContract(compare, { scope: 'states', limit: 201 }),
+      runToolContract(series, { ...seriesInput, limit: 201 }),
       runToolContract(query, { canvas_id: 'missing000', sql: 'SELECT 1', limit: 501 }),
       runToolContract(describeTool, { canvas_id: 'missing000', metadata_limit: 101 }),
     ]);

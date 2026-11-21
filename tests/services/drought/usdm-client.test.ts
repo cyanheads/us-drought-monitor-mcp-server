@@ -125,6 +125,42 @@ describe('USDM HTTP boundary', () => {
     expect(String(fetcher.mock.calls[0]?.[0])).not.toContain('statisticsType');
   });
   it.each([
+    {
+      method: 'dsci',
+      rows: [{ mapDate: row.mapDate, state: 'UT', climateDivision: '1', dsci: 3 }],
+    },
+    {
+      method: 'dsci',
+      rows: [{ mapDate: row.mapDate, state: 'AK', climateDivision: '4901', dsci: 3 }],
+    },
+    {
+      method: 'dsci',
+      rows: [
+        { mapDate: row.mapDate, state: 'AK', climateDivision: '1', dsci: 3 },
+        { mapDate: row.mapDate, state: 'AK', climateDivision: '01', dsci: 3 },
+      ],
+    },
+    { method: 'metric', rows: [{ ...row, climateDivisionsID: '4801' }] },
+  ] as const)(
+    'rejects malformed, unexpected and duplicate climate batch identities ($method)',
+    async ({ method, rows }) => {
+      const climate: MetricQuery = {
+        ...query,
+        areaType: 'climate_division',
+        aoi: '0101,4901',
+        areas: [
+          { areaType: 'climate_division', id: '0101', name: 'Northern Valley', state: 'AL' },
+          { areaType: 'climate_division', id: '4901', name: 'North Slope', state: 'AK' },
+        ],
+      };
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(rows));
+      await expect(new UsdmClient(fetcher)[method](climate, budget())).rejects.toMatchObject({
+        data: { reason: 'upstream_shape_invalid', retryable: false },
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([
     { rows: [{ ...row, fips: '99999' }] },
     { rows: [row, row] },
     { rows: [{ ...row, mapDate: '2024-02-28' }] },

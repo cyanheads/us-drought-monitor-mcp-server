@@ -7,6 +7,20 @@ import { METADATA_FIELDS } from './metadata-pages.js';
 import { AreaSchema, MetricSchema, StatisticsTypeSchema } from './types.js';
 
 const nullableNumber = z.number().nullable();
+/** Opaque snapshot cursor accepted by both producers when analytics is disabled. */
+export const ProducerCursorSchema = z
+  .string()
+  .optional()
+  .describe('Return nextCursor with unchanged producer filters to continue without analytics.');
+/** Disclose continuation only for explicitly paged inline results. */
+export const producerPageFields = {
+  nextCursor: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Continue the same retained snapshot, or null at exhaustion.'),
+  hasMore: z.boolean().optional().describe('Whether the retained snapshot has more rows.'),
+};
 /** Truthful first-prefix counts for complete retained metadata collections. */
 export const MetadataPagesSchema = z.partialRecord(
   z.enum(METADATA_FIELDS),

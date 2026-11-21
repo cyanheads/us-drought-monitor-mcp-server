@@ -18,6 +18,7 @@ import {
 } from '@cyanheads/mcp-ts-core/errors';
 import { getCanvasConfig } from '../../config/canvas-config.js';
 import { getCanvas } from '../canvas-accessor.js';
+import { AnalyticalAdmission, stagingBusy } from './analytical-admission.js';
 import type { StageProducer, StageRequest } from './drought-service.js';
 import { renderFields } from './format.js';
 import { boundedMetadata, type MetadataField } from './metadata-pages.js';
@@ -52,13 +53,6 @@ function capacity(expiresAt?: string): never {
       retryable: true,
       ...(expiresAt ? { earliestExpiry: expiresAt } : {}),
     },
-  );
-}
-function busy(): never {
-  throw new McpError(
-    JsonRpcErrorCode.RateLimited,
-    'Analytical work is busy; retry after active workflows or queries complete.',
-    { reason: 'staging_busy', retryable: true },
   );
 }
 function large(component: string): never {
@@ -155,8 +149,8 @@ function identifier(value: string): void {
 /** Process-local quotas; no user store or hidden caller context is involved. */
 export class DataframeService {
   private readonly tenants = new Map<string, Ledger>();
-  private inFlight = 0;
-  private queries = 0;
+  private readonly producers = new AnalyticalAdmission();
+  private readonly queries = new AnalyticalAdmission();
   private descriptions = 0;
   private tail: Promise<void> = Promise.resolve();
 
@@ -209,14 +203,14 @@ export class DataframeService {
         if (
           !entry.owned ||
           entry.tables.size ||
-          this.queries ||
+          this.queries.hasActiveWork ||
           this.descriptions ||
           ledger.inFlight > (tenant === (ctx.tenantId ?? 'default') ? 1 : 0)
         )
           continue;
         try {
           if ((await entry.instance.describe()).length) continue;
-          if (this.queries || this.descriptions) continue;
+          if (this.queries.hasActiveWork || this.descriptions) continue;
           await engine().drop(id, { ...ctx, tenantId: tenant });
           ledger.canvases.delete(id);
         } catch (error) {
@@ -228,34 +222,32 @@ export class DataframeService {
   }
   /** Admit before any domain fetch, releasing the slot even for inline and empty output. */
   async withAdmission<T>(ctx: Caller, work: (stage: StageProducer) => Promise<T>): Promise<T> {
-    ctx.signal.throwIfAborted();
-    await this.locked(async () => {
-      await this.reconcile();
-      let ledger = this.tenants.get(ctx.tenantId ?? 'default');
-      if (
-        this.inFlight >= 2 ||
-        (ledger?.inFlight ?? 0) >= 2 ||
-        (!ledger && this.tenants.size >= 128)
-      )
-        busy();
-      if (!ledger) {
-        ledger = { inFlight: 0, canvases: new Map() };
-        this.tenants.set(ctx.tenantId ?? 'default', ledger);
-      }
-      ledger.inFlight++;
-      this.inFlight++;
-    });
-    try {
-      ctx.signal.throwIfAborted();
-      return await work((request) => this.stage(request, ctx));
-    } finally {
-      await this.locked(() => {
-        const ledger = this.tenants.get(ctx.tenantId ?? 'default');
-        if (ledger) ledger.inFlight--;
-        this.inFlight--;
-        this.prune();
+    return await this.producers.run(ctx.signal, async () => {
+      const tenant = ctx.tenantId ?? 'default';
+      const ledger = await this.locked(async () => {
+        ctx.signal.throwIfAborted();
+        await this.reconcile();
+        ctx.signal.throwIfAborted();
+        const existing = this.tenants.get(tenant);
+        if (existing) {
+          existing.inFlight++;
+          return existing;
+        }
+        if (this.tenants.size >= 128) throw stagingBusy();
+        const entry: Ledger = { inFlight: 1, canvases: new Map() };
+        this.tenants.set(tenant, entry);
+        return entry;
       });
-    }
+      try {
+        ctx.signal.throwIfAborted();
+        return await work((request) => this.stage(request, ctx));
+      } finally {
+        await this.locked(() => {
+          ledger.inFlight--;
+          this.prune();
+        });
+      }
+    });
   }
   /** Stage complete rows only inside withAdmission; selection never alters stored data. */
   async stage(request: StageRequest, ctx: Caller): ReturnType<StageProducer> {
@@ -288,24 +280,24 @@ export class DataframeService {
               JSON.stringify(value).length <= 40_000 && fits({ ...value, rows: [], staging: null }),
           )
         : metadata;
-    let previewCount = 0;
-    let previewCharacters = 2;
-    for (const row of request.rows) {
-      const size = JSON.stringify(row).length + (previewCount ? 1 : 0);
-      if (
-        previewCount >= (request.limit ?? request.rows.length) ||
-        previewCharacters + size > 40_000
+    const rows = request.rows.slice(0, request.limit);
+    if (!request.exactPreview) {
+      let previewCharacters = 2;
+      let previewCount = 0;
+      for (const row of rows) {
+        const size = JSON.stringify(row).length + (previewCount ? 1 : 0);
+        if (previewCharacters + size > 40_000) break;
+        previewCount++;
+        previewCharacters += size;
+      }
+      rows.length = previewCount;
+      while (
+        rows.length &&
+        (JSON.stringify(rows).length > 40_000 ||
+          !fits({ ...responseMetadata, rows, staging: null }))
       )
-        break;
-      previewCount++;
-      previewCharacters += size;
+        rows.pop();
     }
-    const rows = request.rows.slice(0, previewCount);
-    while (
-      rows.length &&
-      (JSON.stringify(rows).length > 40_000 || !fits({ ...responseMetadata, rows, staging: null }))
-    )
-      rows.pop();
     request.signal.throwIfAborted();
     if (
       responseMetadata === metadata &&
@@ -462,7 +454,8 @@ export class DataframeService {
           canvas_id: instance.canvasId,
           expires_at: table.expiresAt,
         };
-        while (rows.length && !fits({ ...responseMetadata, rows, staging })) rows.pop();
+        if (!request.exactPreview)
+          while (rows.length && !fits({ ...responseMetadata, rows, staging })) rows.pop();
         let entry = ledger.canvases.get(instance.canvasId);
         if (!entry) {
           entry = { instance, owned: instance.isNew, tables: new Map() };
@@ -632,9 +625,19 @@ export class DataframeService {
     input: { canvas_id: string; sql: string; limit: number; offset: number },
     ctx: Caller,
   ) {
-    if (this.queries >= 2) busy();
-    this.queries++;
-    const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(5_000)]);
+    return await this.queries.run(ctx.signal, () => this.executeQuery(input, ctx));
+  }
+
+  private async executeQuery(
+    input: { canvas_id: string; sql: string; limit: number; offset: number },
+    ctx: Caller,
+  ) {
+    const deadline = new AbortController();
+    const timer = setTimeout(
+      () => deadline.abort(new DOMException('Query deadline exceeded', 'TimeoutError')),
+      5_000,
+    );
+    const signal = AbortSignal.any([ctx.signal, deadline.signal]);
     try {
       const instance = await engine().acquire(input.canvas_id, ctx, { signal });
       // Original text gates run before the provider parses and checks the wrapped read plan.
@@ -665,7 +668,7 @@ export class DataframeService {
     } catch (error) {
       safeError(error);
     } finally {
-      this.queries--;
+      clearTimeout(timer);
     }
   }
   /** Remove one disposable table; never delete a caller canvas. */

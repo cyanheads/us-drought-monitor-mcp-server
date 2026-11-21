@@ -119,15 +119,15 @@ export const droughtDataframeQueryTool = tool('drought_dataframe_query', {
     {
       reason: 'sql_read_only',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'SQL gate rejects a write, external read or system catalog.',
+      when: 'SQL gate rejects a write, external read, system catalog or reserved metadata-view identifier.',
       recovery:
-        'Call drought_dataframe_describe and query only its staged tables with drought_dataframe_query.',
+        'Call drought_dataframe_describe and query only its staged tables with drought_dataframe_query. Use aliases and CTE names that differ from engine metadata-view names such as duckdb_tables.',
       thrownBy: 'service',
     },
     {
       reason: 'staging_busy',
       code: JsonRpcErrorCode.RateLimited,
-      when: 'Two queries are already active in this process.',
+      when: 'The analytical query queue is full or the admission wait expired.',
       recovery: 'Retry drought_dataframe_query after the active analytical queries finish.',
       retryable: true,
       thrownBy: 'service',

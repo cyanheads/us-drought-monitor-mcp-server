@@ -128,6 +128,44 @@ describe('official references', () => {
     expect(resolveGeography({ areaType: 'county', aoi: '01001' }).requiresLookup).toBe(false);
     expect(() => resolveGeography({ areaType: 'county', aoi: 'Washington County' })).toThrow();
   });
+  it('discloses independent cities sharing an alias while preserving exact names', () => {
+    const resolve = (aoi: string) => resolveGeography({ areaType: 'county', aoi });
+    expect(resolve('Richmond, VA')).toMatchObject({
+      areas: [{ id: '51159' }],
+      notice: expect.stringContaining('Richmond City (51760)'),
+    });
+    expect(resolve('St. Louis, MO')).toMatchObject({
+      areas: [{ id: '29189' }],
+      notice: expect.stringContaining('Saint Louis City (29510)'),
+    });
+    expect(resolve('Richmond City, VA').areas[0]?.id).toBe('51760');
+    expect(resolve('Richmond County, VA').notice).toBeUndefined();
+    expect(resolve('Alexandria, VA').areas[0]?.id).toBe('51510');
+    expect(resolve('Carson, NV').areas[0]?.id).toBe('32510');
+  });
+  it('matches county abbreviations without dropping substring results or changing other topics', () => {
+    for (const [name, id] of [
+      ['St. Charles', '29183'],
+      ['Ste. Genevieve', '29186'],
+    ] as const) {
+      expect(resolveGeography({ areaType: 'county', aoi: `${name}, MO` }).areas[0]?.id).toBe(id);
+      expect(listReference({ topic: 'counties', state: 'MO', nameContains: name }).records).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id })]),
+      );
+    }
+    expect(
+      listReference({ topic: 'counties', state: 'LA', nameContains: 'St. John' }).records,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ id: '22095' })]));
+    expect(listReference({ topic: 'counties', nameContains: 'St. Tammany' }).records[0]?.id).toBe(
+      '22103',
+    );
+    expect(listReference({ topic: 'tribal', nameContains: 'St. Croix' }).records[0]?.name).toBe(
+      'St. Croix Reservation',
+    );
+    expect(listReference({ topic: 'huc', nameContains: 'St. Joe', hucLevel: 8 }).records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: '17010304' })]),
+    );
+  });
   it('retains current and historical Connecticut identifiers', () => {
     const rows = referenceBundle.counties.filter((row) => row.state === 'CT');
     expect(rows.some((row) => row.currentUsdm === true)).toBe(true);

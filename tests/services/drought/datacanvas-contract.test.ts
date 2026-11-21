@@ -420,6 +420,15 @@ describe('dataframe public contracts', () => {
     });
     parity(result);
   });
+  it('preserves metadata-view spellings as ordinary string values', async () => {
+    const result = await runToolContract(
+      queryTool,
+      { canvas_id: handle.canvas_id, sql: "SELECT 'duckdb_tables' AS label" },
+      options(),
+    );
+    expect(result.structuredContent).toMatchObject({ rows: [{ label: 'duckdb_tables' }] });
+    parity(result);
+  });
   it('proves the parity harness rejects a deliberately corrupted structured cell', async () => {
     const result = await runToolContract(
       queryTool,
@@ -625,6 +634,9 @@ describe('dataframe public contracts', () => {
     ['invalid_sql', 'SELECT ('],
     ['sql_execution_error', `SELECT CAST('not an integer' AS INTEGER)`],
     ['sql_read_only', 'SELECT * FROM information_schema.tables'],
+    ['sql_read_only', 'SELECT 1 AS duckdb_tables'],
+    ['sql_read_only', 'SELECT 1 AS "pg_class"'],
+    ['sql_read_only', 'WITH sqlite_schema AS (SELECT 1 AS n) SELECT 2 AS n'],
   ])('returns declared %s recovery with the same reason on both surfaces', async (reason, sql) => {
     const result = await runToolContract(
       queryTool,

@@ -50,7 +50,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
       .max(200)
       .optional()
       .describe(
-        'County FIPS or exact/unique suffix-free county name, state; mutually exclusive with states.',
+        'County FIPS or county or independent-city name, state. A shared bare name selects the county with a notice. Mutually exclusive with states.',
       ),
     cursor: z
       .string()
@@ -60,10 +60,7 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     limit: pageLimit(25, 200, 'rows per page'),
   }),
   output: z.object({
-    guidance: z
-      .string()
-      .optional()
-      .describe('Coverage guidance for known legacy Connecticut counties.'),
+    guidance: z.string().optional().describe('Geography selection or coverage guidance.'),
     mode: z.enum(['consecutive', 'non_consecutive']).describe('Selected duration mode.'),
     minCategory: z.enum(['D0', 'D1', 'D2', 'D3', 'D4']).describe('Minimum category.'),
     minWeeks: z.number().int().describe('Minimum qualifying map weeks.'),
@@ -82,7 +79,10 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
     provenance: ProvenanceSchema.describe('Actual sources and attribution.'),
   }),
   enrichment: {
-    notice: z.string().optional().describe('Empty threshold or coverage guidance.'),
+    notice: z
+      .string()
+      .optional()
+      .describe('Geography selection, empty threshold or coverage guidance.'),
     effectiveLimit: z
       .number()
       .int()
@@ -173,13 +173,13 @@ export const droughtGetWeeksInDroughtTool = tool('drought_get_weeks_in_drought',
         : {}),
     });
     const result = await droughtService.weeks({ ...input, limit }, ctx.signal);
-    if (result.guidance) ctx.enrich.notice(result.guidance);
-    else if (!result.totalCount)
-      ctx.enrich.notice(
-        result.effectiveRange
-          ? 'No counties meet this threshold; call drought_get_weeks_in_drought with a lower minWeeks or minCategory, or a wider date range.'
-          : 'No published map weeks overlap this range; call drought_get_weeks_in_drought with the coverage shown by drought_list_reference(topic=coverage).',
-      );
+    const empty = !result.totalCount
+      ? result.effectiveRange
+        ? 'No counties meet this threshold; call drought_get_weeks_in_drought with a lower minWeeks or minCategory, or a wider date range.'
+        : 'No published map weeks overlap this range; call drought_get_weeks_in_drought with the coverage shown by drought_list_reference(topic=coverage).'
+      : undefined;
+    const notice = [result.guidance, empty].filter(Boolean).join(' ');
+    if (notice) ctx.enrich.notice(notice);
     return result;
   },
   format: (result) => [{ type: 'text', text: renderWorkflow(result) }],

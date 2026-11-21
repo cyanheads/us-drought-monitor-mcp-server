@@ -4,7 +4,7 @@ description: Use drought_* tools to assess published U.S. Drought Monitor severi
 license: Apache-2.0
 metadata:
   author: "cyanheads"
-  version: "1.0"
+  version: "1.1"
 ---
 
 ## Scope
@@ -13,7 +13,7 @@ Use this keyless server for published weekly USDM observations and drought stati
 
 ## Identifiers
 
-Resolve the requested boundary with `drought_list_reference` before acquiring observations. Use its canonical identifier as a string, preserving leading zeroes. Do not derive a climate-division identifier from state FIPS or substitute a nearby administrative boundary for a watershed or operational region. Resolve a county within its state; a shared county name is insufficient.
+Resolve the requested boundary with `drought_list_reference` before acquiring observations. Use its canonical identifier as a string, preserving leading zeroes. Do not derive a climate-division identifier from state FIPS or substitute a nearby administrative boundary for a watershed or operational region. When a bare county name also identifies an independent city, check the returned selection notice. Use the city's exact name or FIPS to switch boundaries.
 
 For nested watersheds, discover the parent HUC, then its descendants at the required level. Keep that level consistent throughout a history request. The reference bundle identifies supported boundaries; its vintage is not the latest observation date.
 
@@ -53,7 +53,7 @@ Use `drought_get_weeks_in_drought` for consecutive streaks or total qualifying w
 
 With an analytical provider enabled, large results are staged as a DataCanvas table, and the response carries a `canvas_id`. Call `drought_dataframe_describe` with it for the staged table and column names before writing SQL, then `drought_dataframe_query` with a read-only query. Pass the same `canvas_id` back to stage further results beside the first. Check each table's returned expiry; a canvas token does not guarantee that every table still exists.
 
-With the provider disabled and no canvas token supplied, producers return complete inline results within acquisition limits. A null staging handle does not mean rows were discarded or require a smaller request. An explicit canvas token still requires successful token access; do not remove it merely to hide an access error.
+With analytics disabled, omit `limit` for a complete inline result or supply it to page the ranking or time series. When `hasMore` is true, repeat the call with the same filters and pass `nextCursor` as `cursor`. Pages come from a five-minute snapshot. If it expires, start again and use the new snapshot throughout the analysis. An explicit canvas token still requires successful token access; do not remove it merely to hide an access error.
 
 For every original row, query the described table with `SELECT *` and `ORDER BY row_id`. Keep SQL unchanged while following each returned `next_offset` until null. For a transformed query, choose an ordering that remains stable across pages. Do not add a SQL row limit when the task requires the whole result. Use `COUNT(*)` for an exact count of a filtered or joined result rather than counting one response page.
 

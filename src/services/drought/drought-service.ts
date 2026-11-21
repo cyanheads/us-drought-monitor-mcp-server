@@ -9,6 +9,7 @@ import {
   serviceUnavailable,
   validationError,
 } from '@cyanheads/mcp-ts-core/errors';
+import { comparisonPreviewLimit } from '../../config/page-limits.js';
 import { AVAILABLE_FROM, addDays, calendarDate, mapDate, mapRange } from './dates.js';
 import { referenceBundle, resolveGeography, resolveState } from './reference-data.js';
 import {
@@ -34,6 +35,7 @@ import { CategoricalBucketsSchema, CumulativeBucketsSchema } from './workflow-sc
 /** Complete producer rows cross this boundary before preview selection or staging. */
 export interface StageRequest {
   canvas_id?: string;
+  exactPreview?: true;
   kind: 'timeseries' | 'comparison';
   limit?: number;
   metadata: Record<string, unknown>;
@@ -97,6 +99,7 @@ export interface TimeseriesInput {
   areas: Geography[];
   canvas_id?: string | undefined;
   endDate: string;
+  limit?: number | undefined;
   metric?: Metric | undefined;
   startDate: string;
   statisticsType?: StatisticsType | undefined;
@@ -123,6 +126,10 @@ export interface WeeksInput {
   states?: string[] | undefined;
 }
 type LatestPublication = { date: string; expires: number; urls: string[]; retrievedAt: string };
+type ResolvedGeographies = { areas: Area[]; unbundled: Set<string>; notices: string[] };
+/** Conservative allowance above the largest captured county, HUC and climate metric rows. */
+const batchRowBytes = 320;
+const plannedResponseBytes = 8 * 1024 * 1024;
 /** Orchestrates immutable references and the fixed upstream client, without user-store writes. */
 export class DroughtService {
   private latestCache: LatestPublication | undefined;
@@ -217,7 +224,7 @@ export class DroughtService {
     for (const url of this.latestCache.urls) budget.sourceUrls.add(url);
     return this.latestCache.date;
   }
-  private resolve(inputs: Geography[]): Area[] {
+  private resolve(inputs: Geography[]): ResolvedGeographies {
     if (!inputs.length || inputs.length > 100)
       throw validationError('Supply one to 100 explicit areas.', { reason: 'invalid_area' });
     const first = inputs[0];
@@ -232,13 +239,28 @@ export class DroughtService {
       throw validationError('All areas must share their geography type and HUC level.', {
         reason: 'invalid_area',
       });
-    return [
-      ...new Map(
-        inputs.flatMap((area) => resolveGeography(area).areas).map((area) => [area.id, area]),
-      ).values(),
-    ].sort((a, b) => a.id.localeCompare(b.id));
+    const areas = new Map<string, Area>();
+    const unbundled = new Set<string>();
+    const notices = new Set<string>();
+    for (const input of inputs) {
+      const resolution = resolveGeography(input);
+      if (resolution.notice) notices.add(resolution.notice);
+      for (const area of resolution.areas) {
+        areas.set(area.id, area);
+        if (resolution.requiresLookup) unbundled.add(area.id);
+      }
+    }
+    return {
+      areas: [...areas.values()].sort((a, b) => a.id.localeCompare(b.id)),
+      unbundled,
+      notices: [...notices],
+    };
   }
-  private queries(areas: Area[], startDate: string, endDate: string): ObservationQuery[] {
+  private queries(
+    { areas, unbundled }: ResolvedGeographies,
+    startDate: string,
+    endDate: string,
+  ): ObservationQuery[] {
     const first = areas[0];
     if (!first) return [];
     const query = (
@@ -266,27 +288,25 @@ export class DroughtService {
             : areas.map((area) => area.id).join(','),
         ),
       ];
-    if (first.areaType !== 'county' || areas.length === 1)
+    if (
+      first.areaType === 'tribal' ||
+      first.areaType === 'river_forecast_center' ||
+      areas.length === 1
+    )
       return areas.map((area) => query([area], area.id));
-    const known = areas.filter((area) => area.state);
-    const states = [...new Set(known.map((area) => area.state as string))];
-    const count = referenceBundle.counties.filter((area) =>
-      states.includes(area.state ?? ''),
-    ).length;
-    const windowWeeks = Math.max(1, Math.floor((8 * 1024 * 1024) / (Math.max(1, count) * 1024)));
-    const queries: ObservationQuery[] = [];
-    if (known.length)
-      for (let start = startDate; start <= endDate; start = addDays(start, windowWeeks * 7))
-        queries.push({
-          ...query(
-            known,
-            states.join(','),
-            start,
-            [endDate, addDays(start, (windowWeeks - 1) * 7)].sort()[0],
-          ),
-          filterToRequested: true,
-        });
-    queries.push(...areas.filter((area) => !area.state).map((area) => query([area], area.id)));
+    const known = areas.filter((area) => !unbundled.has(area.id));
+    const queries = areas
+      .filter((area) => unbundled.has(area.id))
+      .map((area) => query([area], area.id));
+    if (!known.length) return queries;
+    const aoi = known.map((area) => area.id).join(',');
+    const windowWeeks = Math.floor(plannedResponseBytes / (known.length * batchRowBytes));
+    const weeks = rangeWeeks(startDate, endDate);
+    for (let offset = 0; offset < weeks; offset += windowWeeks) {
+      const start = addDays(startDate, offset * 7);
+      const end = addDays(startDate, (Math.min(weeks, offset + windowWeeks) - 1) * 7);
+      queries.push(query(known, aoi, start, end));
+    }
     return queries;
   }
   private clipped(startDate: string, endDate: string, latest: string) {
@@ -303,7 +323,8 @@ export class DroughtService {
 
   /** Full normalized series producer, before staging or preview selection. */
   async produceTimeseries(input: TimeseriesInput, signal: AbortSignal) {
-    const areas = this.resolve(input.areas);
+    const resolved = this.resolve(input.areas);
+    const { areas, notices } = resolved;
     const metric = input.metric ?? 'area_percent';
     const statisticsType = input.statisticsType ?? 'cumulative';
     if (
@@ -317,12 +338,12 @@ export class DroughtService {
     const budget = new RequestBudget(signal);
     let acquisitionStart = snapped.startDate;
     if (acquisitionStart < AVAILABLE_FROM) acquisitionStart = AVAILABLE_FROM;
-    const preliminary = this.queries(areas, acquisitionStart, snapped.endDate);
+    const preliminary = this.queries(resolved, acquisitionStart, snapped.endDate);
     budget.preflight(1 + preliminary.length * 2);
     const latestMapDate = await this.latest(budget);
     const effectiveRange = this.clipped(snapped.startDate, snapped.endDate, latestMapDate);
     const queries = effectiveRange
-      ? this.queries(areas, effectiveRange.startDate, effectiveRange.endDate)
+      ? this.queries(resolved, effectiveRange.startDate, effectiveRange.endDate)
       : [];
     budget.preflight(budget.requests + queries.length * 2);
     const parts = await budget.all(
@@ -355,29 +376,42 @@ export class DroughtService {
       count: number;
       mapDateRuns: DateRun[];
     }[] = [];
-    if (effectiveRange)
-      for (const area of areas)
+    if (effectiveRange) {
+      const calendar: string[] = [];
+      for (
+        let date = effectiveRange.startDate;
+        date <= effectiveRange.endDate;
+        date = addDays(date, 7)
+      )
+        calendar.push(date);
+
+      for (const area of areas) {
+        budget.signal.throwIfAborted();
         for (const component of ['metric', 'dsci'] as const) {
-          const dates: string[] = [];
-          for (
-            let date = effectiveRange.startDate;
-            date <= effectiveRange.endDate;
-            date = addDays(date, 7)
-          )
-            if (
+          const mapDateRuns: DateRun[] = [];
+          let count = 0;
+          let run: DateRun | undefined;
+          for (const date of calendar) {
+            const observation = key(area, date);
+            const missing =
               component === 'metric'
-                ? !observed.has(key(area, date))
-                : indexes.get(key(area, date)) == null
-            )
-              dates.push(date);
-          if (dates.length)
-            missingObservations.push({
-              area,
-              component,
-              count: dates.length,
-              mapDateRuns: dateRuns(dates),
-            });
+                ? !observed.has(observation)
+                : indexes.get(observation) == null;
+            if (!missing) {
+              run = undefined;
+              continue;
+            }
+            count++;
+            if (run) run.endMapDate = date;
+            else {
+              run = { startMapDate: date, endMapDate: date, stepDays: 7 };
+              mapDateRuns.push(run);
+            }
+          }
+          if (count) missingObservations.push({ area, component, count, mapDateRuns });
         }
+      }
+    }
     const peak = (values: { date: string; value: number | null }[]) => {
       const available = values.filter(
         (item): item is { date: string; value: number } => item.value !== null,
@@ -413,6 +447,7 @@ export class DroughtService {
         peakD3D4: severity ? { ...severity, unit: metricUnit(metric) } : null,
       };
     });
+    const guidance = [...notices, legacyNotice(areas)].filter(Boolean).join(' ');
     const metadata = {
       areas,
       requestedRange: { startDate: input.startDate, endDate: input.endDate },
@@ -425,7 +460,7 @@ export class DroughtService {
       missingAreas: areas.filter((area) => !rows.some((row) => row.id === area.id)),
       missingObservations,
       summary,
-      ...(legacyNotice(areas) ? { guidance: legacyNotice(areas) } : {}),
+      ...(guidance ? { guidance } : {}),
       provenance: this.source(budget, metric.startsWith('population_')),
     };
     return { rows, metadata, signal: budget.signal };
@@ -436,6 +471,7 @@ export class DroughtService {
     const staged = await stage({
       kind: 'timeseries',
       ...full,
+      ...(input.limit === undefined ? {} : { limit: input.limit, exactPreview: true as const }),
       ...(input.canvas_id ? { canvas_id: input.canvas_id } : {}),
     });
     return {
@@ -446,9 +482,23 @@ export class DroughtService {
     };
   }
 
+  /** Bind an inline cursor to all filters that affect the series or its metadata. */
+  timeseriesBinding(input: TimeseriesInput): string {
+    const { areas, notices } = this.resolve(input.areas);
+    return JSON.stringify([
+      areas,
+      notices,
+      input.startDate,
+      input.endDate,
+      input.metric ?? 'area_percent',
+      input.statisticsType ?? 'cumulative',
+    ]);
+  }
+
   /** Exact-week snapshot with authoritative 4/52-week DSCI baselines. */
   async current(input: { area: Geography; date?: string | undefined }, signal: AbortSignal) {
-    const areas = this.resolve([input.area]);
+    const resolved = this.resolve([input.area]);
+    const { areas, notices } = resolved;
     if (input.date) calendarDate(input.date);
     const budget = new RequestBudget(signal, 7);
     const latestMapDate = await this.latest(budget);
@@ -467,12 +517,14 @@ export class DroughtService {
       return {
         ...base,
         snapshots: [],
-        guidance:
+        guidance: [
+          ...notices,
           legacyNotice(areas) ??
-          `Published maps span ${AVAILABLE_FROM} through ${latestMapDate}; call drought_list_reference with topic coverage.`,
+            `Published maps span ${AVAILABLE_FROM} through ${latestMapDate}; call drought_list_reference with topic coverage.`,
+        ].join(' '),
         provenance: this.source(budget, populationSupported),
       };
-    const queries = this.queries(areas, effectiveMapDate, effectiveMapDate);
+    const queries = this.queries(resolved, effectiveMapDate, effectiveMapDate);
     budget.preflight(budget.requests + queries.length * (populationSupported ? 5 : 4));
     let baselineStart = addDays(effectiveMapDate, -364);
     if (baselineStart < AVAILABLE_FROM) baselineStart = AVAILABLE_FROM;
@@ -577,12 +629,17 @@ export class DroughtService {
       found: snapshots.length > 0,
       snapshots,
       guidance:
-        legacyNotice(areas) ??
-        (missing.length
-          ? `Missing required observations: ${missing.join('; ')}. Missing data does not mean no drought; call drought_list_reference for the geography type.`
-          : snapshots.length
-            ? null
-            : 'No snapshot observations are available for this geography and week; call drought_list_reference for the geography type.'),
+        [
+          ...notices,
+          legacyNotice(areas) ??
+            (missing.length
+              ? `Missing required observations: ${missing.join('; ')}. Missing data does not mean no drought; call drought_list_reference for the geography type.`
+              : snapshots.length
+                ? null
+                : 'No snapshot observations are available for this geography and week; call drought_list_reference for the geography type.'),
+        ]
+          .filter(Boolean)
+          .join(' ') || null,
       provenance: this.source(budget, populationSupported),
     };
   }
@@ -716,7 +773,9 @@ export class DroughtService {
     const staged = await stage({
       kind: 'comparison',
       ...full,
-      limit: input.limit ?? 20,
+      ...(input.limit === undefined
+        ? { limit: comparisonPreviewLimit }
+        : { limit: input.limit, exactPreview: true as const }),
       ...(input.canvas_id ? { canvas_id: input.canvas_id } : {}),
     });
     return {
@@ -726,12 +785,29 @@ export class DroughtService {
     };
   }
 
-  private async fetchWeeks(input: WeeksInput, signal: AbortSignal) {
+  /** Bind a ranking cursor without looking up the latest publication again. */
+  comparisonBinding(input: CompareInput): string {
+    if (input.date) calendarDate(input.date);
+    if (input.baselineDate) calendarDate(input.baselineDate);
+    if (input.date && input.baselineDate && input.baselineDate > input.date)
+      throw validationError('baselineDate must not follow date.', { reason: 'invalid_date_range' });
+    return JSON.stringify([
+      input.scope,
+      input.state ? resolveState(input.state).id : null,
+      input.date ? mapDate(input.date) : null,
+      input.baselineDate ? mapDate(input.baselineDate) : null,
+      input.metric ?? 'dsci',
+      input.direction ?? 'desc',
+    ]);
+  }
+
+  private async fetchWeeks(
+    input: WeeksInput,
+    resolvedCounty: Area | undefined,
+    signal: AbortSignal,
+  ) {
     if (input.states?.length && input.county)
       throw validationError('Supply states or county, never both.', { reason: 'invalid_area' });
-    const resolvedCounty = input.county
-      ? this.resolve([{ areaType: 'county', aoi: input.county }])[0]
-      : undefined;
     const countyState =
       resolvedCounty?.state ??
       referenceBundle.states.find((area) => area.id === resolvedCounty?.id.slice(0, 2))?.state;
@@ -807,6 +883,10 @@ export class DroughtService {
   }
   /** Immutable five-minute query-bound paging; cursors never refresh publication windows. */
   async weeks(input: WeeksInput, signal: AbortSignal) {
+    const requestedCounty = input.county
+      ? resolveGeography({ areaType: 'county', aoi: input.county })
+      : undefined;
+    const county = requestedCounty?.areas[0];
     const binding = createHash('sha256')
       .update(
         JSON.stringify({
@@ -817,9 +897,7 @@ export class DroughtService {
           states: input.states
             ? [...new Set(input.states.map((state) => resolveState(state).id))].sort()
             : undefined,
-          county: input.county
-            ? this.resolve([{ areaType: 'county', aoi: input.county }])[0]?.id
-            : undefined,
+          county: county?.id,
         }),
       )
       .digest('hex');
@@ -862,7 +940,7 @@ export class DroughtService {
         );
       }
     } else {
-      const result = await this.fetchWeeks(input, signal);
+      const result = await this.fetchWeeks(input, county, signal);
       const bytes = Buffer.byteLength(JSON.stringify(result));
       if (bytes > 64 * 1024 * 1024) failLarge('weeks_cache');
       while (
@@ -880,8 +958,12 @@ export class DroughtService {
     }
     const rows: WeeksObservation[] = cached.result.rows.slice(offset, offset + (input.limit ?? 25));
     signal.throwIfAborted();
+    const guidance = [requestedCounty?.notice, cached.result.metadata.guidance]
+      .filter(Boolean)
+      .join(' ');
     return {
       ...cached.result.metadata,
+      ...(guidance ? { guidance } : {}),
       rows,
       nextCursor:
         offset + rows.length < cached.result.rows.length

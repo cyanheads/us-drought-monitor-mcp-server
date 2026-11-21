@@ -5,8 +5,14 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { CanvasIdSchema } from '@cyanheads/mcp-ts-core/canvas';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import {
+  effectiveLimit,
+  producerPageLimit,
+  producerPageMaximum,
+} from '../../../config/page-limits.js';
 import { dataframeService } from '../../../services/drought/dataframe-service.js';
 import { droughtService } from '../../../services/drought/drought-service.js';
+import { pageProducer } from '../../../services/drought/producer-pagination.js';
 import {
   AreaSchema,
   GeographySchema,
@@ -18,6 +24,8 @@ import { renderWorkflow } from '../../../services/drought/workflow-format.js';
 import {
   MetadataPagesSchema,
   MissingSchema,
+  ProducerCursorSchema,
+  producerPageFields,
   RangeSchema,
   StageHandleSchema,
   SummarySchema,
@@ -28,7 +36,7 @@ import {
 export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
   title: 'Get weekly drought observations',
   description:
-    'Get weekly drought metrics and experimental DSCI for 1–100 explicit areas sharing one geography type and HUC level. Resolve identifiers with drought_list_reference. Dates select inclusive Tuesday map weeks. Missing values remain null; summaries include every tied peak. Large results are staged when analytics is enabled; use the returned dataframe tools to read every row and retained metadata page. Without analytics, complete results remain inline within acquisition limits.',
+    'Get weekly drought metrics and experimental DSCI for 1–100 explicit areas sharing one geography type and HUC level. Resolve identifiers with drought_list_reference. Dates select inclusive Tuesday map weeks. Missing values remain null; summaries include every tied peak. Supply limit for an exact first page and continue in the staged table, or pass nextCursor with the same filters when analytics is disabled. Without a limit or cursor, disabled analytics returns complete series within acquisition limits.',
   annotations: { readOnlyHint: true, openWorldHint: true },
   input: z.object({
     areas: z.array(GeographySchema).min(1).max(100).describe('Explicit homogeneous geographies.'),
@@ -46,16 +54,15 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     statisticsType: StatisticsTypeSchema.default('cumulative').describe(
       'Overlapping cumulative or exclusive categorical buckets.',
     ),
+    limit: producerPageLimit('Omit for the size-based staged preview or complete inline rows.'),
+    cursor: ProducerCursorSchema,
     canvas_id: z
       .union([z.literal(''), CanvasIdSchema])
       .optional()
       .describe('Canvas token from a previous drought producer to reuse when staging.'),
   }),
   output: z.object({
-    guidance: z
-      .string()
-      .optional()
-      .describe('Coverage guidance for known legacy Connecticut counties.'),
+    guidance: z.string().optional().describe('Geography selection or coverage guidance.'),
     metadata_pages: MetadataPagesSchema.optional().describe(
       'Present only when complete metadata requires automatic continuation.',
     ),
@@ -66,16 +73,34 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     metric: MetricSchema.describe('Selected metric.'),
     statisticsType: StatisticsTypeSchema.describe('Selected representation.'),
     unit: z.string().describe('Bucket unit.'),
-    rows: z.array(WeeklyRowSchema).describe('Complete inline rows or exact staged preview.'),
+    rows: z
+      .array(WeeklyRowSchema)
+      .describe('Complete inline rows, staged preview, or inline page.'),
     rowCount: z.number().int().describe('Complete observation count.'),
     missingAreas: z.array(AreaSchema).describe('Areas without metric observations.'),
     missingObservations: z.array(MissingSchema).describe('Missing metric and DSCI dates.'),
     summary: z.array(SummarySchema).describe('Full-data area summaries.'),
     staging: StageHandleSchema.nullable().describe('Complete analytical table when staged.'),
     provenance: ProvenanceSchema.describe('Actual sources and attribution.'),
+    ...producerPageFields,
   }),
-  enrichment: { notice: z.string().optional().describe('Empty or partial-data guidance.') },
+  enrichment: {
+    notice: z
+      .string()
+      .optional()
+      .describe('Geography selection, coverage or missing-data guidance.'),
+    effectiveLimit: z.number().int().optional().describe('Effective page size when paging.'),
+    limitNotice: z.string().optional().describe('Disclosure when the requested limit was clamped.'),
+    totalCount: z.number().int().optional().describe('Complete observation count when paging.'),
+  },
   errors: [
+    {
+      reason: 'invalid_cursor',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'An inline snapshot cursor is malformed, expired, foreign, or does not match the filters or provider.',
+      recovery: 'Restart drought_get_timeseries without cursor to obtain a fresh result.',
+      thrownBy: 'service',
+    },
     {
       reason: 'upstream_request_rejected',
       code: JsonRpcErrorCode.ValidationError,
@@ -87,8 +112,8 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     {
       reason: 'staging_busy',
       code: JsonRpcErrorCode.RateLimited,
-      when: 'The bounded acquisition admission slots are occupied.',
-      recovery: 'Retry after active workflows or analytical queries finish.',
+      when: 'The acquisition queue is full, the admission wait expired, or the tenant ledger is full.',
+      recovery: 'Retry after active acquisition workflows finish.',
       retryable: true,
       thrownBy: 'service',
     },
@@ -190,18 +215,39 @@ export const droughtGetTimeseriesTool = tool('drought_get_timeseries', {
     },
   ],
   async handler(input, ctx) {
-    const result = await dataframeService.withAdmission(ctx, (stage) =>
-      droughtService.timeseries(input, ctx.signal, stage),
+    const limit =
+      input.limit === undefined
+        ? undefined
+        : effectiveLimit(input.limit, producerPageMaximum, 'drought_get_timeseries', ctx);
+    const { result, effective } = await pageProducer(
+      'timeseries',
+      input,
+      limit,
+      ctx,
+      () => droughtService.timeseriesBinding(input),
+      () =>
+        dataframeService.withAdmission(ctx, (stage) =>
+          droughtService.timeseries({ ...input, limit }, ctx.signal, stage),
+        ),
     );
-    if (result.guidance) ctx.enrich.notice(result.guidance);
-    else if (!result.rowCount)
-      ctx.enrich.notice(
-        'No USDM observations are available for the resolved areas and published weeks; call drought_get_timeseries with a different range or drought_list_reference(topic=coverage).',
-      );
-    else if (result.missingObservations.length)
-      ctx.enrich.notice(
-        'Missing observations are disclosed by component and date; null DSCI does not mean zero drought.',
-      );
+    if (effective !== undefined) {
+      ctx.enrich.total(result.rowCount);
+      ctx.enrich({
+        effectiveLimit: effective,
+        ...(input.limit !== undefined && limit !== undefined && input.limit > limit
+          ? {
+              limitNotice: `Requested limit ${input.limit} was clamped to ${limit}.${result.staging && result.rows.length < result.rowCount ? ' Use the staged table for every remaining row.' : result.hasMore ? ' Pass nextCursor for every remaining row.' : ''}`,
+            }
+          : {}),
+      });
+    }
+    const missing = !result.rowCount
+      ? 'No USDM observations are available for the resolved areas and published weeks; call drought_get_timeseries with a different range or drought_list_reference(topic=coverage).'
+      : result.missingObservations.length
+        ? 'Missing observations are disclosed by component and date; null DSCI does not mean zero drought.'
+        : undefined;
+    const notice = [result.guidance, missing].filter(Boolean).join(' ');
+    if (notice) ctx.enrich.notice(notice);
     return result;
   },
   format: (result) => [{ type: 'text', text: renderWorkflow(result) }],

@@ -58,7 +58,7 @@ The [caller guide](./skills/us-drought-monitor-guide/SKILL.md) covers interpreta
 
 ### `drought_get_current_severity` <sub>tool</sub>
 
-- One `area` (`areaType` + `aoi`, plus `hucLevel` for HUC; `aoi` takes an exact identifier or exact state or `"County Name, ST"` name); unique suffix-free county names such as `"King, WA"` are accepted after exact-name matching. Optional `date` defaults to the latest published map; `us` selects both CONUS and Total
+- One `area` (`areaType` + `aoi`, plus `hucLevel` for HUC; `aoi` takes an exact identifier or exact state or `"County Name, ST"` name); county aliases accept `St.` and `Ste.` and omitted suffixes. `Richmond, VA` selects Richmond County and names the independent city and its FIPS. Use `Richmond City, VA` to select the city. Optional `date` defaults to the latest published map; `us` selects both CONUS and Total
 - Each snapshot carries cumulative and categorical area percent, cumulative square miles, cumulative population (`populationStatus` `unsupported` outside US/state/county), `dsci`, and `dsciChange4Weeks` / `dsciChange52Weeks` against exactly 28 and 364 days earlier, each with an `available` / `missing` / `before_coverage` status
 - A date outside published coverage returns `found: false` with `guidance`
 - River Forecast Centers use `areaType: "river_forecast_center"` with an official code (for example `CBRFC`) or exact name (`Colorado Basin`); area percentages, square miles and DSCI are supported. Unknown RFCs fail local reference resolution
@@ -69,7 +69,8 @@ The [caller guide](./skills/us-drought-monitor-guide/SKILL.md) covers interpreta
 
 - 1–100 `areas` sharing one `areaType` and HUC level; inclusive `startDate` / `endDate`; `metric` `area_percent` (default), `area_sq_miles`, `population_percent` or `population_count` (US/state/county only); `statisticsType` `cumulative` (default) or `categorical`
 - Rows carry the metric buckets plus `dsci`; `missingAreas`, `missingObservations` (date runs per metric and DSCI component) and per-area `summary` (every tied peak) cover the complete series
-- Rows past the inline budget stage behind a preview, with the table in `staging`; optional `canvas_id` stages into an existing canvas. Metadata remains complete inline whenever it fits. Overflow automatically retains complete rows and metadata, including zero-observation results; `metadata_pages` gives each array's total, returned count and next offset
+- Supply `limit` (up to 200) for a count-based row preview. With analytics enabled, follow `staging` to read the complete table. With analytics disabled, pass `nextCursor` back as `cursor` with the same selectors and dates to continue the snapshot. `rowCount` and summaries cover the full request.
+- With `limit` omitted, rows past the inline budget stage behind a preview, with the table in `staging`; optional `canvas_id` stages into an existing canvas. Metadata remains complete inline whenever it fits. Overflow automatically retains complete rows and metadata, including zero-observation results; `metadata_pages` gives each array's total, returned count and next offset
 
 ---
 
@@ -77,7 +78,7 @@ The [caller guide](./skills/us-drought-monitor-guide/SKILL.md) covers interpreta
 
 - `scope` `states` or `counties` (optional `state`, else nationwide); `metric` `dsci` (default), `d2_d4` or `d3_d4`; optional `date` (default latest) and `baselineDate` to rank the change; `direction` `desc` (default) or `asc`
 - Competition ranks share ties; `excludedAreas` names each area missing its target or baseline value; `changeUnit` is `index` or `percentage_points`
-- `limit` (default 20, clamped to 200) sizes the inline preview; the complete ranking stages, with optional `canvas_id` reuse
+- Supply `limit` for a ranking page of up to 200 rows. Follow the staged table or, when analytics is disabled, send `nextCursor` as `cursor` with the same filters. Omitting `limit` keeps the default staged preview of 20 or returns the complete ranking with analytics disabled. `comparedCount` covers the full ranking.
 
 ---
 
@@ -101,6 +102,7 @@ The [caller guide](./skills/us-drought-monitor-guide/SKILL.md) covers interpreta
 ### `drought_dataframe_query` <sub>tool</sub>
 
 - `canvas_id` plus one DuckDB read expression with an optional terminal semicolon; writes, multiple statements, external reads and system catalogs are refused
+- DuckDB metadata-view names such as `duckdb_tables`, `pg_class`, and `sqlite_schema` are reserved as SQL identifiers. Use different names for projected aliases, columns, and CTEs. The same names can still appear as string values.
 - A column named `current_schema` must be table-qualified (`t.current_schema`); unqualified references are refused because DuckDB can bind them as an engine-settings function
 - `limit` (default 25, clamped to 500) and `offset` up to 250,000; continue `next_offset` with identical SQL until null. Explicit pages return the effective count, fewer only at exhaustion, regardless of cell width. `SELECT * FROM <table_name> ORDER BY row_id` returns the original rows in order
 - `countIsExact` is true only when one page from offset 0 holds every row; use `SELECT COUNT(*)` for totals
@@ -123,14 +125,14 @@ USDM-specific:
 - Cumulative buckets (`d1_d4` = D1 or worse) overlap; categorical buckets (`d1_only`) are exclusive. DSCI is upstream's experimental 0–500 index, never recomputed
 - Offline geography bundle: 52 states and jurisdictions, 3,230 counties (Connecticut planning regions included), 323 tribal areas, 357 climate divisions, 13 River Forecast Centers and 2,916 HUCs, refreshed by `scripts/update-reference-data.ts`
 - Staged tables live in DuckDB with a 30-minute sliding lifetime renewed by queries; canvas tokens are tenant-scoped, shareable capabilities, so treat them as credentials
-- At the four-canvas process cap, omitted-token staging reuses the tenant's most recently used service-owned canvas with a free slot (eight tables per canvas). Explicitly supplied canvases remain caller-owned; live tables are never evicted. `staging_capacity_exhausted` advises token reuse or expiry, while `staging_busy` advises waiting for active work. The two-workflow admission bound applies before fetching, including inline reads
+- At the four-canvas process cap, omitted-token staging reuses the tenant's most recently used service-owned canvas with a free slot (eight tables per canvas). Explicitly supplied canvases remain caller-owned; live tables are never evicted. `staging_capacity_exhausted` advises token reuse or expiry, while `staging_busy` advises waiting for active work. Producers and queries have separate pools of two active calls and eight FIFO waiters each. A full queue or a 15-second wait returns `staging_busy`. Fresh producer calls acquire a slot before fetching. Inline cursor reads use their retained snapshot directly
 - Connecticut's eight legacy county FIPS remain discoverable but are omitted from comparison populations. Their empty observation lookups explain that USDM serves Connecticut by planning region; call `drought_list_reference` with `topic: counties`, `state: CT`. Counties are never mapped onto different planning-region boundaries; `currentUsdm: false` alone is not a historical-coverage rule
 - Node acquisition uses a private reusable Undici HTTP/1.1 dispatcher, released during server teardown; Bun retains native fetch
 
 Agent-friendly output:
 
 - Reference records, query rows and describe columns use compact tables with JSON cells; empty cells distinguish absent optional fields from null values. Metadata, nested values and clickable URLs remain complete on both response surfaces
-- Positive integer page/preview limits above 200 (references, comparisons, duration), 500 (SQL), or 100 (metadata) are clamped; `effectiveLimit` and `limitNotice` disclose the result. Set `DROUGHT_CLAMP_LIMITS=false` to advertise and enforce these maxima instead. Clamps emit a request log and the `drought.limit_clamps` counter. Continuation retains every record. Nonpositive and fractional limits are rejected; count ceilings do not bound response bytes
+- Positive integer page/preview limits above 200 (references, time series, comparisons, duration), 500 (SQL), or 100 (metadata) are clamped; `effectiveLimit` and `limitNotice` disclose the result. Set `DROUGHT_CLAMP_LIMITS=false` to advertise and enforce these maxima instead. Clamps emit a request log and the `drought.limit_clamps` counter. Continuation retains every record. Nonpositive and fractional limits are rejected; count ceilings do not bound response bytes
 - Date inputs advertise `YYYY-MM-DD` and validate real calendar dates; blank optional snapshot and comparison dates retain their defaults. A duration threshold beyond its window advises lowering `minWeeks` or widening the dates
 - Provenance on every response: `sourceUrls`, `retrievedAt`, the USDM `credit` line and the experimental-DSCI citation
 - Supported population snapshots and population series add `provenance.populationInterpretation`, retained through dataframe describe/query: [USDM population figures](https://droughtmonitor.unl.edu/About/AbouttheData/PopulationStatistics.aspx) are rough census-based estimates assuming uniform population within counties, with artificial precision rather than exact contemporary headcounts. Source values remain unchanged; no census vintage is inferred
@@ -185,7 +187,7 @@ No API key or account is required. Set `DROUGHT_DATAFRAME_DROP_ENABLED=true` to 
 | `MCP_SESSION_MODE` | HTTP session mode: `stateless`, `stateful`, or `auto`. | `stateless` |
 | `MCP_AUTH_MODE` | Authentication: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_LOG_LEVEL` | Log level (`debug`, `info`, `warning`, `error`, etc.). | `info` |
-| `LOGS_DIR` | Directory for log files (Node.js only). | `<app-root>/logs` |
+| `LOGS_DIR` | Directory for log files (Node.js only). Relative paths resolve from the server package. Set an absolute path to keep logs elsewhere. | `<app-root>/logs` |
 | `OTEL_ENABLED` | Enable [OpenTelemetry](https://github.com/cyanheads/mcp-ts-core/tree/main/docs/telemetry). | `false` |
 
 See [`.env.example`](./.env.example) for every server setting and the common framework overrides.
@@ -194,7 +196,7 @@ See [`.env.example`](./.env.example) for every server setting and the common fra
 
 ### Local development
 
-Requires [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
+Requires [Bun v1.4.4](https://bun.sh/) or higher (or Node.js v24+).
 
 ```sh
 git clone https://github.com/cyanheads/us-drought-monitor-mcp-server.git
@@ -204,7 +206,7 @@ cp .env.example .env
 # optional: set DROUGHT_DATAFRAME_DROP_ENABLED or canvas limits
 ```
 
-Staging and SQL need native DuckDB, included in npm and Docker installs. The portable Claude Desktop `.mcpb` bundle fixes `CANVAS_PROVIDER_TYPE=none`: producers return complete inline results within acquisition limits. Explicit canvas tokens and dataframe operations still require an analytical provider; invalid, expired or foreign tokens never fall back to inline success.
+Staging and SQL need native DuckDB, included in npm and Docker installs. The portable Claude Desktop `.mcpb` bundle fixes `CANVAS_PROVIDER_TYPE=none`: producers return complete inline results within acquisition limits when `limit` is omitted, and cursor pages when supplied. Explicit canvas tokens and dataframe operations still require an analytical provider; invalid, expired or foreign tokens never fall back to inline success.
 
 - **Build and run the production version**:
 

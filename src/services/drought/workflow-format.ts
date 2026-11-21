@@ -2,7 +2,7 @@
  * @fileoverview Lossless ordinary response sections and complete compact row tables.
  * @module services/drought/workflow-format
  */
-import { tableCell as cell, renderFields } from './format.js';
+import { isObjectRow, renderFields, renderTable } from './format.js';
 
 function columnUnit(
   column: string,
@@ -30,27 +30,12 @@ function columnUnit(
 
 /** GFM tables encode present cells as JSON and leave absent optional cells empty. */
 export function renderWorkflow(value: unknown): string {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return renderFields(value);
-  const envelope = value as Record<string, unknown>;
+  if (!isObjectRow(value)) return renderFields(value);
   return Object.entries(value)
     .map(([field, item]) => {
-      if (Array.isArray(item) && ['rows', 'snapshots'].includes(field)) {
+      if (Array.isArray(item) && ['rows', 'snapshots'].includes(field) && item.every(isObjectRow)) {
         if (!item.length) return `## ${field}\n\n[]`;
-        const rows = item as Record<string, unknown>[];
-        const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-        const header = columns.map((column) => {
-          const unit = columnUnit(column, rows, envelope);
-          return `${cell(column)}${unit ? ` (${unit})` : ''}`;
-        });
-        const lines = [
-          `| ${header.join(' | ')} |`,
-          `| ${columns.map(() => '---').join(' | ')} |`,
-          ...rows.map(
-            (row) =>
-              `| ${columns.map((column) => (Object.hasOwn(row, column) ? cell(row[column]) : '')).join(' | ')} |`,
-          ),
-        ];
-        return `## ${field}\n\nCells use JSON values; an empty cell means the optional field is absent.\n\n${lines.join('\n')}`;
+        return `## ${field}\n\n${renderTable(item, (column, rows) => columnUnit(column, rows, value))}`;
       }
       return `## ${field}\n\n${renderFields(item, field)}`;
     })

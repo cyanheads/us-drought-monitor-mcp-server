@@ -7,10 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CanvasRegistry, DataCanvas, DuckdbProvider } from '@cyanheads/mcp-ts-core/canvas';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { droughtDataframeQueryTool } from '@/mcp-server/tools/definitions/drought-dataframe-query.tool.js';
 import { setCanvas } from '@/services/canvas-accessor.js';
-import { DataframeService } from '@/services/drought/dataframe-service.js';
+import { DataframeService, dataframeService } from '@/services/drought/dataframe-service.js';
 import { DroughtService, type StageRequest } from '@/services/drought/drought-service.js';
 import { UsdmClient } from '@/services/drought/usdm-client.js';
 import type { ComparisonRow } from '@/services/drought/workflow-schema.js';
@@ -94,6 +95,7 @@ beforeEach(async () => {
   service = new DataframeService();
 });
 afterEach(async () => {
+  vi.useRealTimers();
   setCanvas(undefined);
   await canvas.shutdown(ctx());
   await rm(root, { recursive: true, force: true });
@@ -329,7 +331,7 @@ describe('atomic analytical admission and retention', () => {
     }
     await expect(stage(3, ctx('fresh'))).resolves.toHaveProperty('staging.canvas_id');
   });
-  it('rejects the third workflow before its fetch callback and releases empty/inline/failure slots', async () => {
+  it('releases empty, inline and failed workflow slots', async () => {
     const entered = deferred();
     const release = deferred();
     let started = 0;
@@ -342,11 +344,7 @@ describe('atomic analytical admission and retention', () => {
     const first = work();
     const second = work();
     await entered.promise;
-    const fetch = vi.fn();
-    await expect(service.withAdmission(ctx('another-tenant'), fetch)).rejects.toMatchObject({
-      data: { reason: 'staging_busy' },
-    });
-    expect(fetch).not.toHaveBeenCalled();
+    expect(started).toBe(2);
     release.resolve();
     await Promise.all([first, second]);
     for (const count of [0, 1])
@@ -358,6 +356,110 @@ describe('atomic analytical admission and retention', () => {
     ).rejects.toThrow('upstream fixture failed');
     expect(canvas.countForTenant(ctx())).toBe(0);
     await expect(stage()).resolves.toHaveProperty('staging.canvas_id');
+  });
+  it('hands off to waiting producers in arrival order across tenants and after failure', async () => {
+    const order: string[] = [];
+    const [releaseFirst, releaseSecond, releaseThird] = [deferred(), deferred(), deferred()];
+    const bothActive = deferred();
+    const thirdEntered = deferred();
+    const first = service.withAdmission(ctx('producer-a'), async () => {
+      order.push('a');
+      await releaseFirst.promise;
+    });
+    const second = service.withAdmission(ctx('producer-b'), async () => {
+      order.push('b');
+      bothActive.resolve();
+      await releaseSecond.promise;
+    });
+    await bothActive.promise;
+    const third = service.withAdmission(ctx('producer-c'), async () => {
+      order.push('c');
+      thirdEntered.resolve();
+      await releaseThird.promise;
+      throw new Error('fixture producer failure');
+    });
+    const thirdOutcome = third.catch((error: unknown) => error);
+    const fourth = service.withAdmission(ctx('producer-d'), async () => {
+      order.push('d');
+    });
+    const fourthOutcome = fourth.catch((error: unknown) => error);
+    try {
+      releaseFirst.resolve();
+      await first;
+      await Promise.race([thirdEntered.promise, thirdOutcome]);
+      expect(order).toEqual(['a', 'b', 'c']);
+      const newcomer = service.withAdmission(ctx('producer-e'), async () => {
+        order.push('e');
+      });
+      releaseThird.resolve();
+      await expect(thirdOutcome).resolves.toMatchObject({ message: 'fixture producer failure' });
+      releaseSecond.resolve();
+      await Promise.all([fourth, newcomer]);
+      expect(order).toEqual(['a', 'b', 'c', 'd', 'e']);
+    } finally {
+      releaseFirst.resolve();
+      releaseSecond.resolve();
+      releaseThird.resolve();
+      await Promise.all([first, second, thirdOutcome, fourthOutcome]);
+    }
+  });
+  it('bounds producer waiters, unlinks cancelled and expired waits, and keeps queries independent', async () => {
+    const handle = (await stage()).staging!;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const release = deferred();
+    const started = deferred();
+    const entered = vi.fn();
+    const active = ['left', 'right'].map((tenantId) =>
+      service.withAdmission(ctx(tenantId), async () => {
+        entered();
+        if (entered.mock.calls.length === 2) started.resolve();
+        await release.promise;
+      }),
+    );
+    await started.promise;
+    const cancelled = new AbortController();
+    const removeListener = vi.spyOn(cancelled.signal, 'removeEventListener');
+    const work = vi.fn(async () => 'admitted');
+    const enqueue = (tenantId: string, signal?: AbortSignal) =>
+      service
+        .withAdmission(createMockContext({ tenantId, ...(signal ? { signal } : {}) }), work)
+        .catch((error: unknown) => error);
+    const waiters = Array.from({ length: 8 }, (_, index) =>
+      enqueue(`waiting-${index}`, index === 0 ? cancelled.signal : undefined),
+    );
+    try {
+      expect(vi.getTimerCount()).toBe(8);
+      await expect(enqueue('overflow')).resolves.toMatchObject({
+        data: { reason: 'staging_busy', retryable: true },
+      });
+      cancelled.abort();
+      await expect(waiters[0]).resolves.toMatchObject({ name: 'AbortError' });
+      expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+      expect(vi.getTimerCount()).toBe(7);
+      const replacement = enqueue('replacement');
+      expect(vi.getTimerCount()).toBe(8);
+      await expect(
+        service.query(
+          { canvas_id: handle.canvas_id, sql: 'SELECT 1 AS value', limit: 1, offset: 0 },
+          ctx(),
+        ),
+      ).resolves.toMatchObject({ rows: [{ value: 1 }] });
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(work).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(8);
+      await vi.advanceTimersByTimeAsync(1);
+      for (const waiter of [...waiters.slice(1), replacement])
+        await expect(waiter).resolves.toMatchObject({
+          data: { reason: 'staging_busy', retryable: true },
+        });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      release.resolve();
+      await Promise.all([...active, ...waiters]);
+    }
+    expect(work).not.toHaveBeenCalled();
+    await expect(enqueue('afterwards')).resolves.toBe('admitted');
+    expect(vi.getTimerCount()).toBe(0);
   });
   it('serializes concurrent omitted-token calls and caps all tenants at four canvases', async () => {
     const first = await Promise.all([stage(), stage()]);
@@ -728,27 +830,128 @@ describe('real DuckDB staged data and bounded SQL', () => {
       ),
     ).resolves.toMatchObject({ rows: [{ n: 1 }] });
   });
-  it('bounds simultaneous queries across tenants and releases both slots on cancellation', async () => {
+  it('bounds query waiters and renders queue overflow or expiry on both response surfaces', async () => {
     const handle = (await stage()).staging!;
-    const controller = new AbortController();
-    const input = {
-      canvas_id: handle.canvas_id,
-      sql: expensiveSql(handle.table_name),
-      limit: 1,
-      offset: 0,
-    };
-    const context = createMockContext({ tenantId: 'canvas-test', signal: controller.signal });
-    const pending = [service.query(input, context), service.query(input, context)];
-    await expect(service.query(input, ctx('other'))).rejects.toMatchObject({
-      data: { reason: 'staging_busy' },
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const release = deferred();
+    const acquire = canvas.acquire.bind(canvas);
+    const entered = vi.spyOn(canvas, 'acquire').mockImplementation(async (id, owner, options) => {
+      await release.promise;
+      return acquire(id, owner, options);
     });
-    controller.abort();
-    expect(
-      (await Promise.allSettled(pending)).every((result) => result.status === 'rejected'),
-    ).toBe(true);
-    await expect(service.query({ ...input, sql: 'SELECT 1 AS n' }, ctx())).resolves.toMatchObject({
-      rows: [{ n: 1 }],
+    const input = { canvas_id: handle.canvas_id, sql: 'SELECT 1 AS n' };
+    const tool = droughtDataframeQueryTool;
+    const invoke = (tenantId: string, signal?: AbortSignal) =>
+      runToolContract(tool, input, { context: { tenantId, ...(signal ? { signal } : {}) } });
+    const active = [invoke('canvas-test'), invoke('canvas-test')];
+    await vi.advanceTimersByTimeAsync(0);
+    const cancelled = new AbortController();
+    const queued = Array.from({ length: 8 }, (_, index) =>
+      invoke(`waiting-query-${index}`, index === 0 ? cancelled.signal : undefined),
+    );
+    const recovery = 'Retry drought_dataframe_query after the active analytical queries finish.';
+    async function expectBusy(pending: ReturnType<typeof invoke>) {
+      const result = await pending;
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        error: { data: { reason: 'staging_busy', retryable: true, recovery: { hint: recovery } } },
+      });
+      expect(result.content[0]).toMatchObject({ text: expect.stringContaining(recovery) });
+      expect(result.content[0]).toMatchObject({ text: expect.stringContaining('staging_busy') });
+    }
+    try {
+      await expectBusy(invoke('overflow'));
+      expect(entered).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(10);
+      await expect(
+        dataframeService.withAdmission(ctx('producer-with-full-query-pool'), async () => 'ready'),
+      ).resolves.toBe('ready');
+      cancelled.abort(new DOMException('Cancelled queued test query', 'AbortError'));
+      const result = await queued[0];
+      expect(result?.structuredContent).toMatchObject({
+        error: { code: JsonRpcErrorCode.RequestCancelled },
+      });
+      expect(result?.content[0]).toMatchObject({
+        text: expect.stringContaining('Cancelled queued test query'),
+      });
+      expect(vi.getTimerCount()).toBe(9);
+      const replacement = invoke('replacement-query');
+      await vi.advanceTimersByTimeAsync(15_000);
+      for (const waiter of [...queued.slice(1), replacement]) await expectBusy(waiter);
+      expect(entered).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      release.resolve();
+      await Promise.all([...active, ...queued]);
+    }
+    const result = await invoke('canvas-test');
+    expect(result.structuredContent).toMatchObject({ rows: [{ n: 1 }] });
+    expect(result.content[0]).toMatchObject({ text: expect.stringMatching(/\x60\s*1\s*\x60/) });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('gives the oldest live query a fresh execution deadline after admission', async () => {
+    const handle = (await stage()).staging!;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const [releaseA, releaseB, releaseC] = [deferred(), deferred(), deferred()];
+    const gates = new Map([
+      ['a', releaseA],
+      ['b', releaseB],
+      ['c', releaseC],
+    ]);
+    const order: (string | undefined)[] = [];
+    let thirdSignal: AbortSignal | undefined;
+    const acquire = canvas.acquire.bind(canvas);
+    vi.spyOn(canvas, 'acquire').mockImplementation(async (id, owner, options) => {
+      const tenant = owner.tenantId;
+      order.push(tenant);
+      if (tenant === 'c') thirdSignal = options?.signal;
+      if (tenant) await gates.get(tenant)?.promise;
+      options?.signal?.throwIfAborted();
+      return acquire(id, ctx(), options);
     });
+    const input = { canvas_id: handle.canvas_id, sql: 'SELECT 1 AS n', limit: 1, offset: 0 };
+    const query = (tenant: string, signal?: AbortSignal) =>
+      service
+        .query(input, createMockContext({ tenantId: tenant, ...(signal ? { signal } : {}) }))
+        .catch((error: unknown) => error);
+    const cancelled = new AbortController();
+    const results = [
+      query('a'),
+      query('b'),
+      query('cancelled', cancelled.signal),
+      query('c'),
+      query('d'),
+    ];
+    try {
+      expect(order).toEqual(['a', 'b']);
+      cancelled.abort();
+      await expect(results[2]).resolves.toMatchObject({ name: 'AbortError' });
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(order).toEqual(['a', 'b']);
+      releaseA.resolve();
+      await expect(results[0]).resolves.toMatchObject({ rows: [{ n: 1 }] });
+      expect(order).toEqual(['a', 'b', 'c']);
+      results.push(query('newcomer'));
+      // Both active deadlines are separate from the cancelled wait and the later waiters.
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(thirdSignal?.aborted).toBe(false);
+      expect(order).toEqual(['a', 'b', 'c']);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(thirdSignal?.aborted).toBe(true);
+      releaseC.resolve();
+      await expect(results[3]).resolves.toMatchObject({ code: JsonRpcErrorCode.Timeout });
+      await expect(results[4]).resolves.toMatchObject({ rows: [{ n: 1 }] });
+      await expect(results[5]).resolves.toMatchObject({ rows: [{ n: 1 }] });
+      expect(order).toEqual(['a', 'b', 'c', 'd', 'newcomer']);
+      releaseB.resolve();
+      await expect(results[1]).resolves.toMatchObject({ code: JsonRpcErrorCode.Timeout });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      releaseA.resolve();
+      releaseB.resolve();
+      releaseC.resolve();
+      await Promise.all(results);
+    }
   });
   it('interrupts actual engine work at its five-second deadline without leaking diagnostics', async () => {
     const handle = (await stage()).staging!;

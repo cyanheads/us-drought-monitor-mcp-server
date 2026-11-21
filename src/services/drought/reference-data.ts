@@ -25,17 +25,21 @@ export function normalizeName(value: string): string {
     .trim()
     .replace(/\s+/g, ' ');
 }
-function uniqueMatch(
-  rows: GeographyRecord[],
-  value: string,
-  name: (row: GeographyRecord) => string = (row) => row.name,
-): GeographyRecord | undefined {
-  const matches = rows.filter((row) => normalizeName(name(row)) === normalizeName(value));
-  if (matches.length > 1)
-    throw validationError(
-      'The exact geography name matches multiple identifiers; supply its identifier.',
-      { reason: 'ambiguous_area' },
-    );
+const countySuffix =
+  / (?:City and Borough|Census Area|County|Parish|Borough|Municipality|Municipio|City)$/i;
+const foldCountyWord = (word: string) =>
+  word === 'st' ? 'saint' : word === 'ste' ? 'sainte' : word;
+const countyName = (value: string) => normalizeName(value).split(' ').map(foldCountyWord).join(' ');
+function ambiguousArea(): never {
+  throw validationError(
+    'The exact geography name matches multiple identifiers; supply its identifier.',
+    { reason: 'ambiguous_area' },
+  );
+}
+function uniqueMatch(rows: GeographyRecord[], value: string): GeographyRecord | undefined {
+  const normalized = normalizeName(value);
+  const matches = rows.filter((row) => normalizeName(row.name) === normalized);
+  if (matches.length > 1) return ambiguousArea();
   return matches[0];
 }
 /** Resolve a state postal code, exact full name or two-digit FIPS. */
@@ -51,6 +55,7 @@ export function resolveState(value: string): GeographyRecord {
 /** A shape-valid identifier outside the bundle requires direct upstream lookup. */
 export interface AreaResolution {
   areas: Area[];
+  notice?: string;
   requiresLookup: boolean;
 }
 /** Resolve exact names and codes; never reject a new shape-valid numeric id permanently. */
@@ -101,14 +106,28 @@ export function resolveGeography(input: Geography): AreaResolution {
     const state = resolveState(value.slice(comma + 1));
     const counties = referenceBundle.counties.filter((county) => county.state === state.state);
     const name = value.slice(0, comma);
-    const row =
-      uniqueMatch(counties, name) ??
-      uniqueMatch(counties, name, (county) =>
-        county.name.replace(
-          / (?:City and Borough|Census Area|County|Parish|Borough|Municipality|Municipio)$/i,
-          '',
-        ),
-      );
+    const exact = uniqueMatch(counties, name);
+    if (exact) return { areas: [exact], requiresLookup: false };
+    const normalized = countyName(name);
+    const full = counties.filter((row) => countyName(row.name) === normalized);
+    if (full.length > 1) return ambiguousArea();
+    const spelled = full[0];
+    if (spelled) return { areas: [spelled], requiresLookup: false };
+    const aliases = counties.filter(
+      (row) => countyName(row.name.replace(countySuffix, '')) === normalized,
+    );
+    if (aliases.length === 2) {
+      const county = aliases.find((row) => / County$/i.test(row.name));
+      const city = aliases.find((row) => / City$/i.test(row.name));
+      if (county && city)
+        return {
+          areas: [county],
+          requiresLookup: false,
+          notice: `Selected ${county.name} (${county.id}) for the shared name. Use ${city.name} (${city.id}) to select the independent city.`,
+        };
+    }
+    if (aliases.length > 1) return ambiguousArea();
+    const row = aliases[0];
     if (!row)
       throw notFound('County name is not in the reference set for the specified state.', {
         reason: 'unknown_area',
@@ -209,7 +228,8 @@ const definitions: Partial<Record<ReferenceTopic, ReferenceRecord[]>> = {
     identifierFormat: {
       us: 'us | conus | total',
       state: 'postal code | two-digit FIPS | exact full name',
-      county: 'five-digit FIPS | exact or unique suffix-free county name, state',
+      county:
+        'five-digit FIPS | county or independent-city name, state; exact names first, shared bare names select the county with a notice; St./Ste. aliases accepted',
       huc: 'exact 2/4/6/8 digits plus matching hucLevel',
       tribal: 'bundled GEOID including suffix',
       climate_division: 'four-digit bundled AOI id (not state FIPS)',
@@ -271,13 +291,21 @@ export function listReference(input: ReferenceQuery) {
     )[input.topic] ??
     definitions[input.topic] ??
     [];
-  const rows = family.filter(
-    (row) =>
-      (!state || ('state' in row && row.state === state)) &&
-      (input.hucLevel === undefined || ('hucLevel' in row && row.hucLevel === input.hucLevel)) &&
-      (!parentHuc || row.id.startsWith(parentHuc)) &&
-      tokens.every((token) => normalizeName(row.name).includes(token)),
-  );
+  const rows = family.filter((row) => {
+    if (
+      (state && (!('state' in row) || row.state !== state)) ||
+      (input.hucLevel !== undefined && (!('hucLevel' in row) || row.hucLevel !== input.hucLevel)) ||
+      (parentHuc && !row.id.startsWith(parentHuc))
+    )
+      return false;
+    const name = normalizeName(row.name);
+    const countyWords = input.topic === 'counties' ? name.split(' ').map(foldCountyWord) : [];
+    return tokens.every((token) => {
+      if (name.includes(token)) return true;
+      const folded = foldCountyWord(token);
+      return (folded === 'saint' || folded === 'sainte') && countyWords.includes(folded);
+    });
+  });
   const binding = createHash('sha256')
     .update(
       JSON.stringify({

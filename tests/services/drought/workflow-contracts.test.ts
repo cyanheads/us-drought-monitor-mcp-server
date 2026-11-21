@@ -7,7 +7,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addDays } from '@/services/drought/dates.js';
-import { renderFields, renderScalar } from '@/services/drought/format.js';
+import { renderFields } from '@/services/drought/format.js';
 import { renderWorkflow } from '@/services/drought/workflow-format.js';
 
 const latest = '2024-03-05';
@@ -42,6 +42,8 @@ const markdownHtml = (markdown: string) =>
     input: markdown,
     encoding: 'utf8',
   });
+const section = (markdown: string, name: string) =>
+  markdown.split(`## ${name}\n`)[1]?.split('\n## ')[0] ?? '';
 const decodeHtml = (value: string) =>
   value
     .replace(/&#(x[\da-f]+|\d+);/gi, (_, code: string) =>
@@ -148,7 +150,7 @@ describe('drought public consumption paths', () => {
     expect(parsed.rows).toHaveLength(dates.length);
     expect(parsed.staging).toBeNull();
     expect(parsed.rows.map((row) => row.mapDate)).toEqual(dates);
-    expect(tableRows(markdownHtml(text(result)))).toHaveLength(dates.length);
+    expect(tableRows(markdownHtml(section(text(result), 'rows')))).toEqual(parsed.rows);
   });
   it('returns exact wide duration pages with unchanged cached continuation on both surfaces', async () => {
     const rows = Array.from({ length: 201 }, (_, index) => ({
@@ -296,6 +298,77 @@ describe('drought public consumption paths', () => {
     expect(text(result)).toContain('drought_list_reference');
     expect(definitions.fetcher).toHaveBeenCalledTimes(1);
   });
+  it('reports the independent city on both surfaces, together with existing missing-data guidance', async () => {
+    const definitions = await tools((url) =>
+      url.pathname === '/api/USStatistics/GetDSCI'
+        ? [{ mapDate: latest, name: 'CONUS', dsci: 1 }]
+        : [],
+    );
+    const county = 'Richmond, VA';
+    const results = [
+      await runToolContract(definitions.current, {
+        area: { areaType: 'county', aoi: county },
+        date: latest,
+      }),
+      await runToolContract(definitions.timeseries, {
+        areas: [{ areaType: 'county', aoi: county }],
+        ...range,
+      }),
+      await runToolContract(definitions.weeks, {
+        county,
+        ...range,
+        minCategory: 'D1',
+        minWeeks: 1,
+      }),
+    ];
+    for (const result of results) {
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        guidance: expect.stringContaining('Richmond City (51760)'),
+        notice: expect.stringContaining('Richmond City (51760)'),
+      });
+      expect(text(result)).toContain('Richmond City (51760)');
+    }
+    expect(results[0]?.structuredContent).toMatchObject({
+      notice: expect.stringContaining('Missing required observations'),
+    });
+    expect(results[1]?.structuredContent).toMatchObject({
+      notice: expect.stringContaining('No USDM observations'),
+    });
+    expect(results[2]?.structuredContent).toMatchObject({
+      notice: expect.stringContaining('No counties'),
+    });
+  });
+  it('returns batched climate division metric and DSCI rows on both surfaces', async () => {
+    const alaska = { areaType: 'climate_division', aoi: '4901' } as const;
+    const alabama = { areaType: 'climate_division', aoi: '0101' } as const;
+    const definitions = await tools((url) => {
+      if (url.pathname === '/api/USStatistics/GetDSCI')
+        return [{ mapDate: latest, name: 'CONUS', dsci: 1 }];
+      expect(url.searchParams.get('aoi')).toBe('0101,4901');
+      if (url.pathname.endsWith('/GetDSCI'))
+        return [
+          { mapDate: latest, state: 'AK', climateDivision: 1, dsci: 3 },
+          { mapDate: latest, state: 'AL', climateDivision: '1', dsci: 72 },
+        ];
+      return [
+        { ...observation, name: undefined, region: 'North Slope', climateDivisionsID: '4901' },
+        { ...observation, name: undefined, region: 'Northern Valley', climateDivisionsID: '0101' },
+      ];
+    });
+    const result = await runToolContract(definitions.timeseries, {
+      areas: [alaska, alabama],
+      ...range,
+    });
+    expect(result.isError).not.toBe(true);
+    const parsed = definitions.timeseries.output.parse(result.structuredContent);
+    expect(parsed.rows).toMatchObject([
+      { id: '0101', state: 'AL', dsci: 72 },
+      { id: '4901', state: 'AK', dsci: 3 },
+    ]);
+    expect(tableRows(markdownHtml(section(text(result), 'rows')))).toEqual(parsed.rows);
+    expect(definitions.fetcher).toHaveBeenCalledTimes(3);
+  });
   it('validates actual snapshot, timeseries, comparison and weeks results and renders every returned row', async () => {
     const definitions = await tools();
     const results = await Promise.all([
@@ -349,13 +422,13 @@ describe('drought public consumption paths', () => {
     expect(text(compare)).toContain('193');
     expect(text(weeks)).toContain('Autauga County');
     expect(text(weeks)).toContain('2024-03-11');
-    for (const [result, expectedRows] of [
-      [current, snapshot.snapshots],
-      [timeseries, series.rows],
-      [compare, ranking.rows],
-      [weeks, durations.rows],
+    for (const [result, field, expectedRows] of [
+      [current, 'snapshots', snapshot.snapshots],
+      [timeseries, 'rows', series.rows],
+      [compare, 'rows', ranking.rows],
+      [weeks, 'rows', durations.rows],
     ] as const)
-      expect(tableRows(markdownHtml(text(result)))).toEqual(expectedRows);
+      expect(tableRows(markdownHtml(section(text(result), field)))).toEqual(expectedRows);
   });
   it('returns empty results with executable notices on both surfaces', async () => {
     const definitions = await tools((url) =>
@@ -576,6 +649,51 @@ describe('exact Markdown value recovery', () => {
       expect(renderFields({ [field]: [] })).toContain('[]');
     },
   );
+  it('keeps the describe table envelope and workflow units visible', () => {
+    const describe = markdownHtml(
+      renderFields({ tables: [{ table_name: 'weekly', columns: [{ name: 'dsci' }] }] }),
+    );
+    expect(describe).toContain('tables[0].table_name:');
+    expect(describe).toContain('tables[0].columns:');
+    const workflow = markdownHtml(renderWorkflow({ rows: [{ dsci: 0 }] }));
+    expect(workflow).toContain('<code>&quot;dsci&quot;</code> (index)');
+  });
+  it('round-trips compact nested describe metadata and paged items with ordered links', () => {
+    const sources = ['https://example.org/a?x=1&y=2', 'https://example.org/a\\|[b]?x=`tick`'];
+    const items = [
+      { id: 'first', nested: { runs: [{ sources, note: 'x|\r\n`' }] }, value: null },
+      {},
+      { id: 'last', nested: [], enabled: false, count: 0 },
+    ];
+    for (const [label, value] of [
+      ['tables[0].metadata.summary', { tables: [{ metadata: { summary: items } }] }],
+      ['metadata_page.items', { metadata_page: { items } }],
+    ] as const) {
+      const html = markdownHtml(renderFields(value));
+      expect(html).toContain(label);
+      expect(tableRows(html)).toEqual(items);
+    }
+    const provenance = markdownHtml(renderFields({ provenance: { sourceUrls: sources } }));
+    const targets = [...provenance.matchAll(/<li><a href="([^"]*)"/g)].map((match) =>
+      decodeURI(decodeHtml(match[1] ?? '')),
+    );
+    expect(targets).toEqual(sources);
+    expect(markdownHtml(renderFields({ summary: [] }))).toContain('[]');
+    const emptyObjects = markdownHtml(renderFields({ summary: [{}, {}] }));
+    expect(emptyObjects).toContain('[{},{}]');
+  });
+  it('renders producer summary records and provenance through the public response', async () => {
+    const definitions = await tools();
+    const result = await runToolContract(definitions.timeseries, { areas: [area], ...range });
+    const parsed = definitions.timeseries.output.parse(result.structuredContent);
+    const summary = section(text(result), 'summary');
+    expect(tableRows(markdownHtml(summary))).toEqual(parsed.summary);
+    const provenance = section(text(result), 'provenance');
+    const targets = [...markdownHtml(provenance).matchAll(/<li><a href="([^"]*)"/g)].map((match) =>
+      decodeHtml(match[1] ?? ''),
+    );
+    expect(targets).toEqual(parsed.provenance.sourceUrls);
+  });
   function parse(markdown: string) {
     const html = markdownHtml(markdown);
     return {
@@ -590,7 +708,7 @@ describe('exact Markdown value recovery', () => {
   }
   it('recovers scalar CR/LF, pipes, embedded fences, nulls and nested metadata through a real Markdown parser', () => {
     const special = 'Name | <tag> & `tick`\nnext\r\nlast\rreturn ``` fence \\| \\\\ path';
-    expect(parse(renderScalar(special)).values).toEqual([special]);
+    expect(parse(renderFields({ special })).values).toEqual([special]);
     const url = 'https://example.org/source?one=1&two=2';
     const rows = [
       {
@@ -601,18 +719,11 @@ describe('exact Markdown value recovery', () => {
         sourceUrl: url,
       },
     ];
-    const result = parse(
-      renderWorkflow({
-        metadata: {
-          nested: [{ label: special, missing: null, count: 0, enabled: false }],
-          sources: [url],
-        },
-        rows,
-      }),
-    );
-    expect(result.values).toEqual([special, null, 0, false]);
-    expect(tableRows(result.html)).toEqual(rows);
-    expect(result.html).toContain(`href="${url.replaceAll('&', '&amp;')}"`);
+    const nested = [{ label: special, missing: null, count: 0, enabled: false }];
+    const result = renderWorkflow({ metadata: { nested, sources: [url] }, rows });
+    expect(tableRows(markdownHtml(section(result, 'metadata')))).toEqual(nested);
+    expect(tableRows(markdownHtml(section(result, 'rows')))).toEqual(rows);
+    expect(markdownHtml(result)).toContain(`href="${url.replaceAll('&', '&amp;')}"`);
   });
   it('preserves absent optional row properties instead of fabricating null values', () => {
     const rows = [

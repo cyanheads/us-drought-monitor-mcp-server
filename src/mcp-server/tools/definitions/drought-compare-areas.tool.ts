@@ -5,13 +5,21 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { CanvasIdSchema } from '@cyanheads/mcp-ts-core/canvas';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { effectiveLimit, pageLimit } from '../../../config/page-limits.js';
+import {
+  comparisonPreviewLimit,
+  effectiveLimit,
+  producerPageLimit,
+  producerPageMaximum,
+} from '../../../config/page-limits.js';
 import { dataframeService } from '../../../services/drought/dataframe-service.js';
 import { droughtService } from '../../../services/drought/drought-service.js';
+import { pageProducer } from '../../../services/drought/producer-pagination.js';
 import { AreaSchema, ProvenanceSchema } from '../../../services/drought/types.js';
 import { renderWorkflow } from '../../../services/drought/workflow-format.js';
 import {
   ComparisonRowSchema,
+  ProducerCursorSchema,
+  producerPageFields,
   StageHandleSchema,
 } from '../../../services/drought/workflow-schema.js';
 
@@ -36,7 +44,10 @@ const shared = {
     .enum(['asc', 'desc'])
     .default('desc')
     .describe('Order by severity or baseline change.'),
-  limit: pageLimit(20, 200, 'preview rows'),
+  limit: producerPageLimit(
+    `Default staged preview is up to ${comparisonPreviewLimit} rows; without analytics omission returns all rows.`,
+  ),
+  cursor: ProducerCursorSchema,
   canvas_id: z
     .union([z.literal(''), CanvasIdSchema])
     .optional()
@@ -46,7 +57,7 @@ const shared = {
 export const droughtCompareAreasTool = tool('drought_compare_areas', {
   title: 'Compare drought severity across areas',
   description:
-    'Rank all supported states, or counties within an optional state, on one published map. Omit state for nationwide supported counties. With baselineDate, rank target minus exact baseline; missing sides are excluded explicitly. Equal values share competition rank. limit controls a staged preview; without analytics, complete rankings remain inline within acquisition limits.',
+    'Rank all supported states, or counties within an optional state, on one published map. Omit state for nationwide supported counties. With baselineDate, rank target minus exact baseline; missing sides are excluded explicitly. Equal values share competition rank. Supply limit for an exact first page and continue in the staged table, or pass nextCursor with the same filters when analytics is disabled. Without a limit or cursor, disabled analytics returns complete rankings within acquisition limits.',
   annotations: { readOnlyHint: true, openWorldHint: true },
   input: z.discriminatedUnion('scope', [
     z.object({ scope: z.literal('states').describe('All supported states.'), ...shared }).strict(),
@@ -71,7 +82,9 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     changeUnit: z.enum(['index', 'percentage_points']).describe('Difference unit.'),
     targetMapDate: z.string().describe('Exact target Tuesday.'),
     baselineMapDate: z.string().nullable().describe('Exact baseline Tuesday or null.'),
-    rows: z.array(ComparisonRowSchema).describe('Complete ranking or staged preview.'),
+    rows: z
+      .array(ComparisonRowSchema)
+      .describe('Complete ranking, staged preview, or inline page.'),
     comparedCount: z.number().int().describe('Complete comparable population.'),
     excludedAreas: z
       .array(
@@ -85,13 +98,14 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
       .describe('Every area lacking a required value.'),
     staging: StageHandleSchema.nullable().describe('Complete ranking table when staged.'),
     provenance: ProvenanceSchema.describe('Actual sources and attribution.'),
+    ...producerPageFields,
   }),
   enrichment: {
     effectiveLimit: z
       .number()
       .int()
       .optional()
-      .describe('Effective preview ceiling after clamping to 200.'),
+      .describe('Effective page size, or default preview ceiling without an explicit limit.'),
     limitNotice: z.string().optional().describe('Disclosure when the requested limit was clamped.'),
     notice: z.string().optional().describe('Empty comparison or preview continuation guidance.'),
     totalCount: z
@@ -100,6 +114,13 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
       .describe('Complete comparable population before preview selection.'),
   },
   errors: [
+    {
+      reason: 'invalid_cursor',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'An inline snapshot cursor is malformed, expired, foreign, or does not match the filters or provider.',
+      recovery: 'Restart drought_compare_areas without cursor to obtain a fresh result.',
+      thrownBy: 'service',
+    },
     {
       reason: 'upstream_request_rejected',
       code: JsonRpcErrorCode.ValidationError,
@@ -111,8 +132,8 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     {
       reason: 'staging_busy',
       code: JsonRpcErrorCode.RateLimited,
-      when: 'The bounded acquisition admission slots are occupied.',
-      recovery: 'Retry after active workflows or analytical queries finish.',
+      when: 'The acquisition queue is full, the admission wait expired, or the tenant ledger is full.',
+      recovery: 'Retry after active acquisition workflows finish.',
       retryable: true,
       thrownBy: 'service',
     },
@@ -204,15 +225,26 @@ export const droughtCompareAreasTool = tool('drought_compare_areas', {
     },
   ],
   async handler(input, ctx) {
-    const limit = effectiveLimit(input.limit, 200, 'drought_compare_areas', ctx);
-    const result = await dataframeService.withAdmission(ctx, (stage) =>
-      droughtService.compare({ ...input, limit }, ctx.signal, stage),
+    const limit =
+      input.limit === undefined
+        ? undefined
+        : effectiveLimit(input.limit, producerPageMaximum, 'drought_compare_areas', ctx);
+    const { result, effective } = await pageProducer(
+      'comparison',
+      input,
+      limit,
+      ctx,
+      () => droughtService.comparisonBinding(input),
+      () =>
+        dataframeService.withAdmission(ctx, (stage) =>
+          droughtService.compare({ ...input, limit }, ctx.signal, stage),
+        ),
     );
     ctx.enrich({
-      effectiveLimit: limit,
-      ...(input.limit > limit
+      effectiveLimit: effective ?? comparisonPreviewLimit,
+      ...(input.limit !== undefined && limit !== undefined && input.limit > limit
         ? {
-            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}.${result.staging && result.rows.length < result.comparedCount ? ' Use the staged table for every remaining row.' : ''}`,
+            limitNotice: `Requested limit ${input.limit} was clamped to ${limit}.${result.staging && result.rows.length < result.comparedCount ? ' Use the staged table for every remaining row.' : result.hasMore ? ' Pass nextCursor for every remaining row.' : ''}`,
           }
         : {}),
     });

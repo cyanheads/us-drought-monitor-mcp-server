@@ -325,7 +325,11 @@ export class UsdmClient {
       ...(query.areaType === 'huc' ? { hucLevel: String(query.hucLevel) } : {}),
     };
   }
-  private identity(raw: Raw, query: ObservationQuery): Area | undefined {
+  private identity(
+    raw: Raw,
+    query: ObservationQuery,
+    component: 'metric' | 'dsci',
+  ): Area | undefined {
     let id: string | undefined;
     if (query.areaType === 'us') id = (raw.areaOfInterest ?? raw.name)?.toLowerCase();
     else if (query.areaType === 'county') id = raw.fips ?? undefined;
@@ -347,9 +351,23 @@ export class UsdmClient {
       );
       if (!area) return shape('USDM returned an unmatched River Forecast Center name.');
       id = area.id;
+    } else if (query.areaType === 'climate_division' && query.areas.length > 1) {
+      if (component === 'metric') {
+        id = typeof raw.climateDivisionsID === 'string' ? raw.climateDivisionsID : undefined;
+      } else {
+        const division =
+          typeof raw.climateDivision === 'number'
+            ? String(raw.climateDivision)
+            : raw.climateDivision;
+        if (!raw.state || typeof division !== 'string' || !/^\d{1,2}$/.test(division))
+          return shape('USDM omitted the state or within-state climate division number.');
+        id = query.areas.find(
+          (area) => area.state === raw.state && area.id.slice(2) === division.padStart(2, '0'),
+        )?.id;
+      }
     } else {
       if (query.areas.length !== 1)
-        return shape('Tribal and climate division requests require a single canonical selector.');
+        return shape('Tribal requests require a single canonical selector.');
       id = query.areas[0]?.id;
     }
     if (!id) return shape('USDM omitted the geography identity.');
@@ -382,6 +400,7 @@ export class UsdmClient {
     rows: unknown[],
     query: ObservationQuery,
     budget: RequestBudget,
+    component: 'metric' | 'dsci',
     project: (raw: Raw, area: Area, date: string) => T,
   ): T[] {
     const seen = new Set<string>();
@@ -403,7 +422,7 @@ export class UsdmClient {
         new Date(`${date}T00:00:00Z`).getUTCDay() !== 2
       )
         return shape();
-      const area = this.identity(raw, query);
+      const area = this.identity(raw, query, component);
       if (!area) continue;
       const key = `${area.id}:${date}`;
       if (seen.has(key)) return shape('USDM returned duplicate geography/date observations.');
@@ -431,7 +450,7 @@ export class UsdmClient {
       },
       budget,
     );
-    return this.normalize(rows, query, budget, (raw, area, date) => {
+    return this.normalize(rows, query, budget, 'metric', (raw, area, date) => {
       if (['none', 'd0', 'd1', 'd2', 'd3', 'd4'].some((key) => !Object.hasOwn(raw, key)))
         return shape('USDM omitted required metric buckets.');
       try {
@@ -476,7 +495,7 @@ export class UsdmClient {
       this.parameters(query),
       budget,
     );
-    return this.normalize(rows, query, budget, (raw, area, date) => ({
+    return this.normalize(rows, query, budget, 'dsci', (raw, area, date) => ({
       ...area,
       mapDate: date,
       dsci: raw.dsci ?? null,

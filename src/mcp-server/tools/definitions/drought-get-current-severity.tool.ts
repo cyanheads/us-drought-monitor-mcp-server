@@ -65,10 +65,18 @@ export const droughtGetCurrentSeverityTool = tool('drought_get_current_severity'
         }).describe('Exact-week severity components and authoritative index changes.'),
       )
       .describe('Complete required severity components for each area.'),
-    guidance: z.string().nullable().describe('Missing-data or coverage guidance.'),
+    guidance: z
+      .string()
+      .nullable()
+      .describe('Geography selection, missing-data or coverage guidance.'),
     provenance: ProvenanceSchema.describe('Actual sources and attribution.'),
   }),
-  enrichment: { notice: z.string().optional().describe('Missing observation guidance.') },
+  enrichment: {
+    notice: z
+      .string()
+      .optional()
+      .describe('Geography selection, missing-data or coverage guidance.'),
+  },
   errors: [
     {
       reason: 'upstream_request_rejected',

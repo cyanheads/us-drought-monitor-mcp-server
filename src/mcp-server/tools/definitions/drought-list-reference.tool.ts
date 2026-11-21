@@ -28,7 +28,9 @@ export const droughtListReferenceTool = tool('drought_list_reference', {
       .string()
       .max(200)
       .optional()
-      .describe('All normalized tokens must appear in the reference name.'),
+      .describe(
+        'All normalized tokens must appear in the reference name. County filters recognize St./Ste. as Saint/Sainte.',
+      ),
     state: z
       .string()
       .max(200)
