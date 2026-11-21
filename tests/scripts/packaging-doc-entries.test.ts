@@ -19,6 +19,8 @@ const retained = [
   'node_modules/outer/node_modules/@modelcontextprotocol/server/dist/ext/skills/index.mjs',
   'node_modules/other/dist/skills/runtime.js',
   'node_modules/@scope/other/build/framework-skills/runtime.js',
+  'node_modules/@scope/skills/runtime.js',
+  'node_modules/@scope/other/docs/AGENTS.md',
 ];
 const removed = [
   'node_modules/plain/skills/guide/SKILL.md',
@@ -32,6 +34,8 @@ const removed = [
   'node_modules/plain/node_modules/inner/.agents/config.json',
   'node_modules/@scope/pkg/SKILL.md',
   'node_modules/plain/docs/nested/SKILL.md',
+  'node_modules/@scope/pkg/AGENTS.md',
+  'node_modules/plain/node_modules/inner/CLAUDE.md',
 ];
 
 describe('dependency agent-doc pruning', () => {
