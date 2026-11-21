@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-11-21 · ⚠️ Breaking
+
+Batch county, watershed, and climate-division drought history and page time series and rankings with an explicit row limit.
+
 ## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-10-26 · ⚠️ Breaking
 
 Complete drought pages with River Forecast Center context and population interpretation.
